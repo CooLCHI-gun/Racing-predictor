@@ -1,0 +1,31 @@
+{
+  "date": "2026-04-04",
+  "generated_at": "2026-04-04T17:01:15.474941+08:00",
+  "has_new_settled": false,
+  "latest_settled_marker": "2026-04-01_ST_9|2026-04-03T12:27:34.014934|4",
+  "summary": {
+    "total_predictions": 107,
+    "winner_accuracy": 0.3645,
+    "top3_hit_rate": 0.6137,
+    "r30_real_roi": 218.1,
+    "r30_real_races": 79
+  },
+  "optimization": {
+    "ran": true,
+    "profile": {
+      "min_confidence": 0.7,
+      "max_win_odds": 18.0,
+      "selected_samples": 36,
+      "selected_win_rate": 0.9167,
+      "selected_roi": 813.33
+    }
+  },
+  "retrain": {
+    "attempted": false,
+    "ran": false,
+    "reason": "REAL_DATA_ONLY blocks synthetic retrain",
+    "new_settled_since_last": 107,
+    "target_synthetic_races": 0,
+    "metrics": {}
+  }
+}

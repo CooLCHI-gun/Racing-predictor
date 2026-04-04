@@ -31,6 +31,9 @@ class TelegramNotifier:
         from config import config
         self.token = token or config.TELEGRAM_TOKEN
         self.chat_id = chat_id or config.TELEGRAM_CHAT_ID
+        self.message_style = (config.MESSAGE_STYLE or "pro").strip().lower()
+        if self.message_style not in {"casual", "pro"}:
+            self.message_style = "pro"
         self._bot: Any = None
 
         if not self.token or not self.chat_id:
@@ -103,6 +106,9 @@ class TelegramNotifier:
         """Synchronous wrapper for _send."""
         return self._run_async_sync(self._send(text))
 
+    def _is_pro(self) -> bool:
+        return self.message_style != "casual"
+
     async def send_race_preview(self, race, prediction) -> bool:
         """
         Send a race preview notification 30 minutes before the race.
@@ -147,22 +153,28 @@ class TelegramNotifier:
             bev_implied_pct = int(bev.implied_win_prob * 100)
             ev_str = f"馬號{bev.horse_number} (模型{bev_model_pct}% vs 賠率隱含{bev_implied_pct}%)"
 
+        title = "🏇✨ <b>賽前雷達｜第{race}場</b>" if self._is_pro() else "🏇 <b>開跑前提你｜第{race}場</b>"
+        top3_title = "🎯 <b>焦點三甲預測 (不分先後)</b>" if self._is_pro() else "🎯 <b>我睇好呢三隻 (不分先後)</b>"
+        trio_label = "💰 三T組合" if self._is_pro() else "💰 三T參考"
+        ev_label = "📊 EV亮點" if self._is_pro() else "📊 值博重點"
+        confidence_label = "📈 全場模型信心度" if self._is_pro() else "📈 今場整體信心"
+
         text = (
-            f"🏇 <b>第{race.race_number}場</b> - {venue_ch} {race.start_time}\n"
+            f"{title.format(race=race.race_number)} - {venue_ch} {race.start_time}\n"
             f"📍 距離: {race.distance}m | 班次: {race.race_class} | "
             f"場地: {'草地' if race.track_type == 'Turf' else '全天候'}\n"
             f"⛅ 場地狀況: {race.going}\n"
             f"\n"
-            f"🎯 <b>頭三名預測 (不分先後):</b>\n"
+            f"{top3_title}\n"
             + "\n".join(horse_lines) +
             f"\n\n"
-            f"💰 三T建議: <b>{trio_str}</b>\n"
-            f"📊 EV最佳: {ev_str}\n"
+            f"{trio_label}: <b>{trio_str}</b>\n"
+            f"{ev_label}: {ev_str}\n"
             f"\n"
             f"🔢 共 {len(race.horses)} 匹參賽\n"
-            f"📈 模型信心度: {int(prediction.confidence * 100)}%\n"
+            f"{confidence_label}: {int(prediction.confidence * 100)}%\n"
             f"\n"
-            f"<i>⚠️ 僅供研究參考，不構成投注建議</i>"
+            f"<i>{'🧪 僅供研究參考，不構成投注建議' if self._is_pro() else '🧪 研究用途，唔係投注建議'}</i>"
         )
 
         return await self._send(text)
@@ -203,15 +215,18 @@ class TelegramNotifier:
         predicted_str = " / ".join(f"#{n}" for n in predicted_nums) if predicted_nums else "N/A"
         actual_str = " / ".join(f"#{n}" for n in actual_top3)
 
+        title = "🏁📣 <b>賽後對照｜第{race}場</b>" if self._is_pro() else "🏁 <b>賽果出咗｜第{race}場</b>"
+        predicted_label = "🤖 模型頭三" if self._is_pro() else "🤖 我哋預測頭三"
+
         text = (
-            f"🏁 <b>第{race.race_number}場結果</b> - {venue_ch}\n"
+            f"{title.format(race=race.race_number)} - {venue_ch}\n"
             f"\n"
             f"🥇 實際頭三: {actual_str}\n"
-            f"🎯 預測頭三: {predicted_str}\n"
+            f"{predicted_label}: {predicted_str}\n"
             f"\n"
-            f"{hit_emoji} 命中率: {hits}/3\n"
-            f"{'✅ 首選馬勝出！' if winner_correct else '❌ 首選馬落敗'}\n"
-            f"{'🎉 三T完整命中！' if trio_hit else ''}\n"
+            f"{hit_emoji} 命中數: {hits}/3\n"
+            f"{'✅ 首選命中，節奏漂亮！' if winner_correct else '❌ 首選未中，下場再追！'}\n"
+            f"{'🎉 三T完整命中！' if trio_hit else ('📌 三T未齊，持續追蹤變化。' if self._is_pro() else '📌 今場三T未齊，下場再嚟。')}\n"
         )
 
         return await self._send(text)
@@ -236,19 +251,22 @@ class TelegramNotifier:
 
         roi_emoji = "📈" if roi_30d >= 0 else "📉"
 
+        title = "📊🌙 <b>每日戰報</b>" if self._is_pro() else "📊 <b>今日總結</b>"
+        kpi_title = "<b>近30日核心指標</b>" if self._is_pro() else "<b>近30日表現</b>"
+
         text = (
-            f"📊 <b>每日賽事總結</b> - {race_date}\n"
+            f"{title} - {race_date}\n"
             f"\n"
-            f"🏇 今日賽事: 完成\n"
+            f"🏇 今日賽事: 已完成\n"
             f"\n"
-            f"<b>近30日成績:</b>\n"
+            f"{kpi_title}\n"
             f"🎯 首選準確率: {win_acc:.1%}\n"
             f"🏆 頭三到位率: {top3_rate:.1%}\n"
             f"{roi_emoji} 30日 ROI: {roi_30d:+.1f}%\n"
             f"7日 ROI: {roi_7d:+.1f}%\n"
             f"💰 30日淨利潤: {'+'if net_30d >= 0 else ''}${net_30d:.0f}\n"
             f"\n"
-            f"<i>⚠️ 本系統僅供研究參考，不構成投注建議</i>"
+            f"<i>{'🧪 本系統僅供研究參考，不構成投注建議' if self._is_pro() else '🧪 研究用途參考，唔係投注建議'}</i>"
         )
 
         return await self._send(text)
@@ -267,8 +285,9 @@ class TelegramNotifier:
         level_emojis = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "🚨"}
         emoji = level_emojis.get(level, "📢")
 
+        title = f"{emoji} <b>系統通知 [{level}]</b>" if self._is_pro() else f"{emoji} <b>系統提示 [{level}]</b>"
         text = (
-            f"{emoji} <b>系統通知 [{level}]</b>\n"
+            f"{title}\n"
             f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"\n"
             f"{message}"

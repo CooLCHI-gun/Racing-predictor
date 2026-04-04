@@ -34,7 +34,7 @@
 
 ### 步驟 A：確認最新賽果已回填（每週補充一次即可）
 
-    cd "c:\Users\lccqs\hkjc-predictor (Real)"
+    cd "c:\Users\lccqs\Racing-predictor"
     .\.venv311\Scripts\python.exe backfill_recent_real100.py --target 100 --max-days 160
 
 看到「已寫入 history.json」表示完成。
@@ -136,7 +136,7 @@
 
 ### Step 0. 進到專案目錄
 
-    cd "c:\Users\lccqs\hkjc-predictor (Real)"
+    cd "c:\Users\lccqs\Racing-predictor"
 
 ### Step 1. 先預覽最近 100 場（不寫檔）
 
@@ -267,7 +267,7 @@
 
 ### Step 0. 進到專案目錄
 
-    cd "c:\Users\lccqs\hkjc-predictor (Real)"
+    cd "c:\Users\lccqs\Racing-predictor"
 
 ### Step 1. 先預覽最近 100 場（不寫檔）
 

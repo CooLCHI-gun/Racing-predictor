@@ -24,6 +24,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_str(name: str, default: str) -> str:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw
+
+
 @dataclass
 class Config:
     # ── HKJC URLs (confirmed working 2026-04-02) ──────────────────────────
@@ -44,6 +51,7 @@ class Config:
     # ── Telegram ────────────────────────────────────────────────────────────
     TELEGRAM_TOKEN: str = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", ""))
     TELEGRAM_CHAT_ID: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
+    MESSAGE_STYLE: str = field(default_factory=lambda: os.getenv("MESSAGE_STYLE", "pro").strip().lower())
 
     # ── Model ───────────────────────────────────────────────────────────────
     MODEL_PATH: str = "data/models/"
@@ -53,7 +61,7 @@ class Config:
     # ── Web ─────────────────────────────────────────────────────────────────
     FLASK_PORT: int = field(default_factory=lambda: _env_int("PORT", _env_int("FLASK_PORT", 5000)))
     FLASK_DEBUG: bool = field(default_factory=lambda: _env_bool("FLASK_DEBUG", False))
-    SECRET_KEY: str = field(default_factory=lambda: os.getenv("SECRET_KEY", "hkjc-predictor-dev-secret"))
+    SECRET_KEY: str = field(default_factory=lambda: os.getenv("SECRET_KEY", "racing-predictor-dev-secret"))
 
     # ── Scheduler (HKT = UTC+8) ─────────────────────────────────────────────
     RACE_DAY_FETCH_TIME: str = "09:00"    # Fetch racecard at 9am HKT
@@ -82,6 +90,33 @@ class Config:
     ENABLE_SELF_OPTIMIZATION: bool = True  # Auto-tune recommendation thresholds from backtest
     STRATEGY_PROFILE_PATH: str = "data/models/strategy_profile.json"
     OPTIMIZATION_LOOKBACK_DAYS: int = 120
+    TICK_SENT_STATE_FILE: str = field(
+        default_factory=lambda: os.getenv("TICK_SENT_STATE_FILE", "data/predictions/tick_notified.json")
+    )
+    CRON_STATE_FILE: str = field(
+        default_factory=lambda: _env_str("CRON_STATE_FILE", "data/predictions/cron_state.json")
+    )
+    CRON_MAINTENANCE_HOUR: int = field(default_factory=lambda: _env_int("CRON_MAINTENANCE_HOUR", 21))
+    CRON_MAINTENANCE_MINUTE: int = field(default_factory=lambda: _env_int("CRON_MAINTENANCE_MINUTE", 50))
+    CRON_MAINTENANCE_WINDOW_MINS: int = field(
+        default_factory=lambda: _env_int("CRON_MAINTENANCE_WINDOW_MINS", 10)
+    )
+    MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: bool = field(
+        default_factory=lambda: _env_bool("MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED", True)
+    )
+    MAINTENANCE_REPORT_DIR: str = field(
+        default_factory=lambda: _env_str("MAINTENANCE_REPORT_DIR", "data/reports")
+    )
+    DAILY_RETRAIN_ENABLED: bool = field(default_factory=lambda: _env_bool("DAILY_RETRAIN_ENABLED", True))
+    DAILY_RETRAIN_MIN_NEW_SETTLED: int = field(
+        default_factory=lambda: _env_int("DAILY_RETRAIN_MIN_NEW_SETTLED", 1)
+    )
+    DAILY_RETRAIN_SYNTHETIC_RACES_BASE: int = field(
+        default_factory=lambda: _env_int("DAILY_RETRAIN_SYNTHETIC_RACES_BASE", 600)
+    )
+    DAILY_RETRAIN_SYNTHETIC_RACES_SCALE: int = field(
+        default_factory=lambda: _env_int("DAILY_RETRAIN_SYNTHETIC_RACES_SCALE", 8)
+    )
 
     # ── Risk guard ──────────────────────────────────────────────────────────
     ENABLE_RISK_GUARD: bool = True
