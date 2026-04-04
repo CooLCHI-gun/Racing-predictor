@@ -5,7 +5,7 @@ Backtesting and ROI tracking for prediction performance.
 import json
 import logging
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -544,7 +544,21 @@ class Backtester:
         try:
             with open(self.history_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._records = {k: RacePredictionRecord(**v) for k, v in data.items()}
+            allowed_keys = {f.name for f in fields(RacePredictionRecord)}
+            records: Dict[str, RacePredictionRecord] = {}
+            dropped = 0
+            for k, v in data.items():
+                if not isinstance(v, dict):
+                    dropped += 1
+                    continue
+                filtered = {kk: vv for kk, vv in v.items() if kk in allowed_keys}
+                try:
+                    records[k] = RacePredictionRecord(**filtered)
+                except Exception:
+                    dropped += 1
+            self._records = records
+            if dropped:
+                logger.warning("Dropped %s invalid history entries while loading", dropped)
             logger.info(f"Loaded {len(self._records)} prediction records")
         except Exception as e:
             logger.error(f"Failed to load history: {e}")

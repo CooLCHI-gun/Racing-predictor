@@ -21,16 +21,16 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 try:
     import xgboost as xgb
     XGB_AVAILABLE = True
-except ImportError:
+except Exception as e:
     XGB_AVAILABLE = False
-    logging.warning("XGBoost not installed; ensemble will use LightGBM only")
+    logging.warning("XGBoost unavailable (%s); ensemble will use LightGBM only", e)
 
 try:
     import lightgbm as lgb
     LGB_AVAILABLE = True
-except ImportError:
+except Exception as e:
     LGB_AVAILABLE = False
-    logging.warning("LightGBM not installed; ensemble will use XGBoost only")
+    logging.warning("LightGBM unavailable (%s); ensemble will use XGBoost only", e)
 
 from features.builder import MODEL_FEATURE_COLS
 

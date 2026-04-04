@@ -137,6 +137,42 @@ def test_backtester_history_consistency_from_file(tmp_path):
     assert summary.winner_correct == 1
 
 
+def test_backtester_load_history_ignores_unknown_fields(tmp_path):
+    history_path = tmp_path / "history.json"
+    payload = {
+        "2026-04-01_ST_1": {
+            "race_id": "2026-04-01_ST_1",
+            "race_date": "2026-04-01",
+            "race_number": 1,
+            "venue": "Sha Tin",
+            "distance": 1200,
+            "race_class": "Class 4",
+            "going": "GOOD",
+            "predicted_top3": [1, 2, 3],
+            "predicted_winner": 1,
+            "predicted_winner_odds": 5.0,
+            "predicted_top3_odds": [5.0, 6.0, 7.0],
+            "feature_rows": [],
+            "actual_result": [1, 2, 3],
+            "actual_winner": 1,
+            "winner_correct": True,
+            "top3_hit": 3,
+            "trio_hit": True,
+            "win_bet_return": 50.0,
+            "place_bet_return": 20.0,
+            "trio_bet_return": 100.0,
+            "model_confidence": 0.8,
+            "unknown_extra_key": "should_be_ignored",
+        }
+    }
+
+    with open(history_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+
+    bt = Backtester(history_file=str(history_path))
+    assert "2026-04-01_ST_1" in bt._records
+
+
 def test_build_features_race_datetime_timezone():
     race = Race(
         race_number=1,
