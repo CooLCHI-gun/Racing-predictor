@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}回測成績 - HKJC 賽馬預測系統{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 px-md-4 py-4">
+
+  <h2 class="page-title mb-4">
+    <i class="bi bi-graph-up-arrow text-warning me-2"></i>回測成績 &amp; ROI 分析
+  </h2>
+
+  <!-- ── KPI Cards ── -->
+  <div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-3">
+      <div class="kpi-card">
+        <div class="kpi-icon text-warning"><i class="bi bi-bullseye"></i></div>
+        <div class="kpi-label">勝出準確率</div>
+        <div class="kpi-value">{{ (summary.winner_accuracy * 100)|round(1) }}%</div>
+        <div class="kpi-sub text-muted">首選馬勝出</div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+      <div class="kpi-card">
+        <div class="kpi-icon text-success"><i class="bi bi-trophy"></i></div>
+        <div class="kpi-label">頭三到位率</div>
+        <div class="kpi-value">{{ (summary.top3_hit_rate * 100)|round(1) }}%</div>
+        <div class="kpi-sub text-muted">預測TOP3命中</div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+      <div class="kpi-card">
+        <div class="kpi-icon text-info"><i class="bi bi-three-dots"></i></div>
+        <div class="kpi-label">三T命中率</div>
+        <div class="kpi-value">{{ (summary.trio_hit_rate * 100)|round(1) }}%</div>
+        <div class="kpi-sub text-muted">三T完整命中</div>
+      </div>
+    </div>
+
+    <div class="col-6 col-md-3">
+      <div class="kpi-card {% if summary.roi_30d > 0 %}kpi-positive{% elif summary.roi_30d < 0 %}kpi-negative{% endif %}">
+        <div class="kpi-icon {% if summary.roi_30d >= 0 %}text-success{% else %}text-danger{% endif %}">
+          <i class="bi bi-currency-dollar"></i>
+        </div>
+        <div class="kpi-label">30日投資回報</div>
+        <div class="kpi-value {% if summary.roi_30d >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {% if summary.roi_30d >= 0 %}+{% endif %}{{ summary.roi_30d }}%
+        </div>
+        <div class="kpi-sub text-muted">勝出注單 $10/場</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Strategy Comparison ── -->
+  <div class="row g-4 mb-4">
+
+    <div class="col-lg-6">
+      <div class="card detail-card">
+        <div class="card-header">
+          <i class="bi bi-bar-chart-line me-2 text-info"></i>策略比較（近30日）
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-dark table-sm mb-0">
+              <thead>
+                <tr>
+                  <th>策略</th>
+                  <th class="text-end">場數</th>
+                  <th class="text-end">總投入</th>
+                  <th class="text-end">總回報</th>
+                  <th class="text-end">ROI</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><i class="bi bi-1-circle me-1 text-warning"></i>首選勝出注</td>
+                  <td class="text-end">{{ r30.total_races }}</td>
+                  <td class="text-end">${{ (r30.total_races * 10)|int }}</td>
+                  <td class="text-end">${{ r30.total_returned }}</td>
+                  <td class="text-end {% if r30.win_roi >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    {% if r30.win_roi >= 0 %}+{% endif %}{{ r30.win_roi }}%
+                  </td>
+                </tr>
+                <tr>
+                  <td><i class="bi bi-p-circle me-1 text-info"></i>首選位置注</td>
+                  <td class="text-end">{{ r30.total_races }}</td>
+                  <td class="text-end">${{ (r30.total_races * 10)|int }}</td>
+                  <td class="text-end">-</td>
+                  <td class="text-end {% if r30_place.win_roi >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    {% if r30_place.win_roi >= 0 %}+{% endif %}{{ r30_place.win_roi }}%
+                  </td>
+                </tr>
+                <tr>
+                  <td><i class="bi bi-three-dots me-1 text-primary"></i>三T組合</td>
+                  <td class="text-end">{{ r30.total_races }}</td>
+                  <td class="text-end">${{ (r30.total_races * 10)|int }}</td>
+                  <td class="text-end">-</td>
+                  <td class="text-end {% if r30_trio.win_roi >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    {% if r30_trio.win_roi >= 0 %}+{% endif %}{{ r30_trio.win_roi }}%
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 7-day vs 30-day -->
+          <div class="mt-3 d-flex gap-3">
+            <div class="period-stat">
+              <div class="period-label">7日 ROI</div>
+              <div class="period-val {% if r7.win_roi >= 0 %}text-success{% else %}text-danger{% endif %}">
+                {% if r7.win_roi >= 0 %}+{% endif %}{{ r7.win_roi }}% ({{ r7.total_races }}場)
+              </div>
+            </div>
+            <div class="period-stat">
+              <div class="period-label">30日淨利潤</div>
+              <div class="period-val {% if summary.net_profit_30d >= 0 %}text-success{% else %}text-danger{% endif %}">
+                {% if summary.net_profit_30d >= 0 %}+{% endif %}${{ summary.net_profit_30d }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="card detail-card">
+        <div class="card-header">
+          <i class="bi bi-graph-up me-2 text-success"></i>累積淨利潤走勢（最近15場）
+        </div>
+        <div class="card-body">
+          <canvas id="roiChart" height="180"></canvas>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Race History Table ── -->
+  <div class="card detail-card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-clock-history me-2"></i>預測歷史記錄（最近{{ records|length }}場）</span>
+      <span class="badge bg-secondary">共 {{ summary.total_predictions }} 場</span>
+    </div>
+    <div class="card-body p-0">
+      {% if records %}
+      <div class="table-responsive">
+        <table class="table table-dark table-hover table-sm mb-0">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>賽事</th>
+              <th>預測TOP3</th>
+              <th>實際TOP3</th>
+              <th>命中</th>
+              <th>三T</th>
+              <th>信心度</th>
+              <th>結果</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rec in records %}
+            <tr>
+              <td class="text-muted small">{{ rec.date }}</td>
+              <td>
+                <span class="badge bg-dark border">{{ rec.venue[:2] }}</span>
+                {{ rec.race }}
+              </td>
+              <td>
+                {% for num in rec.predicted %}
+                <span class="trio-horse-num">#{{ num }}</span>
+                {% endfor %}
+              </td>
+              <td>
+                {% for num in rec.actual_top3 %}
+                <span class="trio-horse-num {% if num in rec.predicted %}match{% endif %}">#{{ num }}</span>
+                {% endfor %}
+              </td>
+              <td>
+                <div class="hits-{{ rec.top3_hits }}">
+                  {% for i in range(3) %}
+                  <span class="hit-dot {% if i < rec.top3_hits %}hit{% endif %}"></span>
+                  {% endfor %}
+                  {{ rec.top3_hits }}/3
+                </div>
+              </td>
+              <td>
+                {% if rec.top3_hits == 3 %}
+                <span class="badge bg-success">✓</span>
+                {% else %}
+                <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="conf-mini">
+                  <div class="conf-mini-bar" style="width:{{ (rec.confidence * 100)|round(0)|int }}%"></div>
+                  <span class="conf-mini-val">{{ (rec.confidence * 100)|round(0)|int }}%</span>
+                </div>
+              </td>
+              <td>
+                {% if rec.winner_correct %}
+                <span class="badge bg-success">首選勝</span>
+                {% else %}
+                <span class="badge bg-secondary">-</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center text-muted py-4">尚無歷史記錄</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── ROI Line Chart ─────────────────────────────────────────────────────────
+const roiDates = {{ roi_dates|safe }};
+const roiValues = {{ roi_values|safe }};
+
+const roiCtx = document.getElementById("roiChart");
+if (roiCtx) {
+  new Chart(roiCtx, {
+    type: "line",
+    data: {
+      labels: roiDates,
+      datasets: [{
+        label: "累積淨利潤 ($)",
+        data: roiValues,
+        borderColor: "#2ea043",
+        backgroundColor: "rgba(46, 160, 67, 0.15)",
+        borderWidth: 2,
+        pointBackgroundColor: roiValues.map(v => v >= 0 ? "#2ea043" : "#da3633"),
+        pointRadius: 4,
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `淨利潤: ${ctx.raw >= 0 ? "+" : ""}$${ctx.raw}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: "#8b949e", maxTicksLimit: 8 },
+          grid: { color: "#21262d" }
+        },
+        y: {
+          ticks: {
+            color: "#8b949e",
+            callback: v => (v >= 0 ? "+" : "") + "$" + v
+          },
+          grid: { color: "#21262d" }
+        }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}第{{ race.race_number }}場詳情 - HKJC 賽馬預測系統{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 px-md-4 py-4">
+
+  <!-- ── Breadcrumb & Header ── -->
+  <nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{{ url_for('index') }}">今日賽事</a></li>
+      <li class="breadcrumb-item active">第 {{ race.race_number }} 場</li>
+    </ol>
+  </nav>
+
+  <!-- Race Header -->
+  <div class="race-detail-header mb-4">
+    <div class="d-flex flex-wrap gap-3 align-items-start justify-content-between">
+      <div>
+        <h1 class="race-detail-title">
+          <span class="race-num-large">第 {{ race.race_number }} 場</span>
+          &nbsp;
+          <span class="race-class-tag">{{ race.race_class }}</span>
+        </h1>
+        <div class="race-detail-meta mt-1">
+          <span><i class="bi bi-geo-alt me-1"></i>{{ race.venue }}</span>
+          <span class="ms-3"><i class="bi bi-arrows-expand me-1"></i>{{ race.distance }}m</span>
+          <span class="ms-3"><i class="bi bi-grid me-1"></i>{{ race.track_type }}</span>
+          <span class="ms-3 going-tag going-{{ race.going|replace(' ', '-')|lower }}">{{ race.going }}</span>
+          <span class="ms-3"><i class="bi bi-clock me-1"></i>{{ race.start_time }}</span>
+          <span class="ms-3"><i class="bi bi-people me-1"></i>{{ race.horses|length }} 匹</span>
+        </div>
+      </div>
+      {% if prediction %}
+      <div class="confidence-display">
+        <div class="conf-label">模型信心度</div>
+        <div class="conf-circle {% if prediction.confidence >= 0.7 %}high{% elif prediction.confidence >= 0.5 %}mid{% else %}low{% endif %}">
+          {{ (prediction.confidence * 100)|round(0)|int }}%
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if prediction %}
+  <div class="row g-4">
+
+    <!-- ── Left Column: Main Table ── -->
+    <div class="col-lg-8">
+
+      <!-- Top-5 Picks Card -->
+      <div class="card detail-card mb-4">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <span><i class="bi bi-trophy-fill text-warning me-2"></i>頭{{ prediction.top5|length }}名預測（依信心度排列）</span>
+          <span class="badge bg-secondary" id="odds-updated">最後更新: <span id="last-update-time">--</span></span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-dark table-hover mb-0 detail-table">
+              <thead>
+                <tr>
+                  <th>排名</th>
+                  <th>馬號</th>
+                  <th>馬名</th>
+                  <th>騎師</th>
+                  <th>練馬師</th>
+                  <th>檔位</th>
+                  <th>模型概率</th>
+                  <th>賠率概率</th>
+                  <th>勝賠</th>
+                  <th>EV/10</th>
+                  <th>標記</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for runner in runners %}
+                {% set h = runner.horse %}
+                <tr class="{% if h.rank <= 3 %}top3-row{% endif %} {% if h.is_value_bet %}value-row{% endif %}"
+                    data-horse-num="{{ h.horse_number }}">
+                  <td><span class="rank-badge rank-{{ h.rank }}">{{ h.rank }}</span></td>
+                  <td><strong class="text-warning">#{{ h.horse_number }}</strong></td>
+                  <td>
+                    <div class="fw-medium">{{ h.horse_name }}</div>
+                    {% if h.horse_name_ch %}
+                    <div class="text-muted small">{{ h.horse_name_ch }}</div>
+                    {% endif %}
+                  </td>
+                  <td class="small">{{ h.jockey }}</td>
+                  <td class="small text-muted">{{ h.trainer[:14] }}</td>
+                  <td class="text-center">
+                    <span class="draw-badge">{{ h.draw }}</span>
+                  </td>
+                  <td>
+                    <div class="prob-bar-wrap">
+                      <div class="prob-bar model-bar" style="width: {{ runner.model_prob_pct }}%"></div>
+                    </div>
+                    <div class="small text-center">{{ runner.model_prob_pct }}%</div>
+                  </td>
+                  <td>
+                    <div class="prob-bar-wrap">
+                      <div class="prob-bar implied-bar" style="width: {{ runner.implied_prob_pct }}%"></div>
+                    </div>
+                    <div class="small text-center">{{ runner.implied_prob_pct }}%</div>
+                  </td>
+                  <td>
+                    <span class="odds-val" data-horse="{{ h.horse_number }}" data-type="win">
+                      {{ h.win_odds }}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="{% if h.expected_value > 0 %}ev-positive{% else %}ev-negative{% endif %}">
+                      {% if h.expected_value > 0 %}+{% endif %}${{ runner.ev_per_10 }}
+                    </span>
+                  </td>
+                  <td>
+                    {% if h.is_value_bet %}<span class="value-badge">值博</span>{% endif %}
+                    {% if h.rank == 1 %}<span class="badge bg-warning text-dark ms-1">首選</span>{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart: Model vs Market -->
+      <div class="card detail-card mb-4">
+        <div class="card-header">
+          <i class="bi bi-bar-chart-fill text-info me-2"></i>模型概率 vs 市場隱含概率
+        </div>
+        <div class="card-body">
+          <canvas id="probChart" height="160"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right Column: Recommendations ── -->
+    <div class="col-lg-4">
+
+      <!-- Trio Suggestions -->
+      {% if prediction.trio_suggestions %}
+      <div class="card detail-card mb-3">
+        <div class="card-header">
+          <i class="bi bi-three-dots text-warning me-2"></i>三T（Trio）建議
+        </div>
+        <div class="card-body p-0">
+          {% for trio in prediction.trio_suggestions[:5] %}
+          <div class="trio-row {% if loop.first %}trio-top{% endif %}">
+            <div class="trio-rank">#{{ loop.index }}</div>
+            <div class="trio-horses">
+              {% for num in trio %}
+              <span class="trio-horse-num">#{{ num }}</span>
+              {% endfor %}
+            </div>
+            {% if loop.first %}<span class="badge bg-warning text-dark">首選</span>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Parlay Picks -->
+      {% if prediction.parlay_picks %}
+      <div class="card detail-card mb-3">
+        <div class="card-header">
+          <i class="bi bi-lightning-charge-fill text-success me-2"></i>過關推介（混合過關）
+        </div>
+        <div class="card-body">
+          {% for h in prediction.parlay_picks %}
+          <div class="parlay-row">
+            <span class="horse-num-badge">#{{ h.horse_number }}</span>
+            <div class="ms-2">
+              <div class="fw-medium">{{ h.horse_name }}</div>
+              <div class="text-muted small">信心度 {{ (h.confidence * 100)|round(0)|int }}% &nbsp;·&nbsp; 賠率 {{ h.win_odds }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Value Bets -->
+      {% if prediction.value_bets %}
+      <div class="card detail-card mb-3">
+        <div class="card-header">
+          <i class="bi bi-gem text-success me-2"></i>值博推介
+          <span class="badge bg-success ms-2">{{ prediction.value_bets|length }}</span>
+        </div>
+        <div class="card-body">
+          {% for h in prediction.value_bets[:3] %}
+          <div class="value-bet-row">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <span class="horse-num-badge">#{{ h.horse_number }}</span>
+                <strong class="ms-2">{{ h.horse_name[:18] }}</strong>
+              </div>
+              <span class="value-badge">值博</span>
+            </div>
+            <div class="mt-1 small">
+              <span class="text-muted">模型: </span>
+              <span class="text-success">{{ (h.win_prob * 100)|round(1) }}%</span>
+              <span class="text-muted ms-2">賠率隱含: </span>
+              <span class="text-muted">{{ (h.implied_win_prob * 100)|round(1) }}%</span>
+            </div>
+            <div class="mt-1 small">
+              <span class="text-muted">優勢: </span>
+              <span class="text-success">+{{ (h.overlay_pct * 100)|round(1) }}%</span>
+              <span class="ms-2">EV/10: </span>
+              <span class="ev-positive">+${{ h.expected_value }}</span>
+            </div>
+            <div class="mt-1 small text-muted">
+              若勝出預期回報: <strong class="text-warning">${{ (h.win_odds * 10)|round(0)|int }}</strong> per $10
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Best EV -->
+      {% if prediction.best_ev_horse %}
+      {% set bev = prediction.best_ev_horse %}
+      <div class="card detail-card mb-3 ev-card">
+        <div class="card-header">
+          <i class="bi bi-currency-dollar text-warning me-2"></i>最高 EV 推介
+        </div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="horse-num-badge large">#{{ bev.horse_number }}</span>
+            <div>
+              <div class="fw-bold">{{ bev.horse_name }}</div>
+              <div class="text-muted small">{{ bev.jockey }}</div>
+            </div>
+          </div>
+          <div class="ev-stats">
+            <div class="ev-stat"><span class="label">勝賠</span><span class="val">{{ bev.win_odds }}</span></div>
+            <div class="ev-stat"><span class="label">模型概率</span><span class="val text-success">{{ (bev.win_prob * 100)|round(1) }}%</span></div>
+            <div class="ev-stat"><span class="label">EV/10</span><span class="val ev-positive">+${{ bev.expected_value }}</span></div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Race Navigation -->
+      <div class="card detail-card mb-3">
+        <div class="card-header"><i class="bi bi-list-ul me-2"></i>今日賽事</div>
+        <div class="card-body p-2">
+          <div class="d-flex flex-wrap gap-1">
+            {% for i in range(1, total_races + 1) %}
+            <a href="{{ url_for('race_detail', race_number=i) }}"
+               class="btn btn-sm {% if i == race.race_number %}btn-warning{% else %}btn-outline-secondary{% endif %}">
+              {{ i }}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  {% else %}
+  <div class="alert alert-secondary">此場次預測尚未生成，請稍後重試。</div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Probability Chart ──────────────────────────────────────────────────────
+const labels = {{ chart_labels|safe }};
+const modelData = {{ chart_model|safe }};
+const impliedData = {{ chart_implied|safe }};
+
+const ctx = document.getElementById("probChart");
+if (ctx) {
+  new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: "模型概率 (%)",
+          data: modelData,
+          backgroundColor: "rgba(245, 166, 35, 0.75)",
+          borderColor: "#f5a623",
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+        {
+          label: "賠率隱含概率 (%)",
+          data: impliedData,
+          backgroundColor: "rgba(100, 180, 255, 0.45)",
+          borderColor: "#64b4ff",
+          borderWidth: 1,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: "#c9d1d9" } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.raw}%`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: "#8b949e" }, grid: { color: "#21262d" } },
+        y: {
+          ticks: { color: "#8b949e", callback: v => v + "%" },
+          grid: { color: "#21262d" },
+        },
+      },
+    },
+  });
+}
+
+// ── Live odds polling ──────────────────────────────────────────────────────
+const RACE_NUM = {{ race.race_number }};
+startOddsPolling(RACE_NUM, 60000);
+</script>
+{% endblock %}

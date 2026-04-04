@@ -1,0 +1,12 @@
+{
+  "min_confidence": 0.7,
+  "max_win_odds": 18.0,
+  "min_samples": 24,
+  "objective_weight_win_rate": 0.55,
+  "objective_weight_roi": 0.45,
+  "selected_samples": 36,
+  "selected_win_rate": 0.9167,
+  "selected_roi": 813.33,
+  "selected_score": 0.9542,
+  "optimized_at": "2026-04-03T12:28:38.050264"
+}

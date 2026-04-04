@@ -1,0 +1,25 @@
+# Python cache/build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+
+# Local settings and secrets
+.env
+
+# IDE / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Runtime artifacts
+data/hkjc_predictor.log

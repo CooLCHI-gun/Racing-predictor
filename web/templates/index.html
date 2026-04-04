@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}今日賽事 - HKJC 賽馬預測系統{% endblock %}
+
+{% block content %}
+<!-- ── Hero Banner ── -->
+<div class="venue-banner {% if venue == 'Happy Valley' %}hv-banner{% else %}st-banner{% endif %}">
+  <div class="container-fluid px-3 px-md-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <div class="banner-venue">
+          <i class="bi bi-geo-alt-fill me-2"></i>
+          {% if venue == 'Happy Valley' %}跑馬地馬場{% else %}沙田馬場{% endif %}
+        </div>
+        <div class="banner-date">{{ today }} &nbsp;·&nbsp; 共 {{ total_races }} 場</div>
+      </div>
+      <div class="d-flex gap-3 align-items-center">
+        {% if weather %}
+        <div class="weather-badge">
+          <span class="going-tag going-{{ weather.going|replace(' ', '-')|lower }}">{{ weather.going }}</span>
+          <span class="text-light">{{ weather.temperature }}°C</span>
+          <span class="text-muted">湿度 {{ weather.humidity }}%</span>
+          {% if weather.is_raining %}<i class="bi bi-cloud-rain text-info ms-1"></i>{% endif %}
+        </div>
+        {% endif %}
+        <div class="model-badge">
+          <i class="bi bi-cpu me-1"></i> XGBoost + LightGBM
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Race Cards Grid ── -->
+<div class="container-fluid px-3 px-md-4 py-4">
+
+  {% if not race_cards %}
+  <div class="empty-state text-center py-5">
+    <i class="bi bi-calendar-x display-4 text-muted"></i>
+    <p class="mt-3 text-muted">今日沒有賽事或資料尚未載入</p>
+    <a href="/api/refresh" class="btn btn-outline-warning mt-2">刷新數據</a>
+  </div>
+  {% else %}
+
+  <div class="row g-3">
+    {% for card in race_cards %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="race-card h-100" onclick="location.href='{{ url_for('race_detail', race_number=card.race.race_number) }}'">
+
+        <!-- Card Header -->
+        <div class="race-card-header">
+          <div class="d-flex align-items-center justify-content-between">
+            <div class="race-number-badge">第 {{ card.race.race_number }} 場</div>
+            <div class="race-time">
+              <i class="bi bi-clock me-1"></i>{{ card.race.start_time }}
+              <span class="countdown-tag" data-time="{{ card.race.start_time }}"></span>
+            </div>
+          </div>
+          <div class="race-info mt-2">
+            <span class="race-class-tag">{{ card.race.race_class }}</span>
+            <span class="text-muted ms-2">{{ card.race.distance }}m</span>
+            <span class="ms-2 going-tag going-{{ card.race.going|replace(' ', '-')|lower }}">
+              {{ card.race.going[:4] }}
+            </span>
+            <span class="ms-2 text-muted small">{{ card.race.track_type }}</span>
+          </div>
+        </div>
+
+        <!-- Predictions -->
+        <div class="race-card-body">
+          {% if card.top3 %}
+          <div class="prediction-label">
+            <i class="bi bi-stars me-1 text-warning"></i>頭三名預測
+          </div>
+          {% for horse in card.top3 %}
+          <div class="horse-row {% if horse.is_value_bet %}value-bet{% endif %}">
+            <div class="horse-rank-badge rank-{{ loop.index }}">{{ loop.index }}</div>
+            <div class="horse-info">
+              <div class="horse-name">
+                <span class="horse-num">#{{ horse.horse_number }}</span>
+                {{ horse.horse_name[:20] }}
+                {% if horse.horse_name_ch %}
+                  <span class="horse-name-ch">{{ horse.horse_name_ch }}</span>
+                {% endif %}
+              </div>
+              <div class="horse-meta text-muted small">
+                {{ horse.jockey }} &nbsp;/&nbsp; {{ horse.trainer[:12] }}
+              </div>
+            </div>
+            <div class="horse-odds-col text-end">
+              <div class="horse-odds">{{ horse.win_odds }}</div>
+              <div class="horse-prob text-muted small">{{ (horse.model_prob * 100)|round(1) }}%</div>
+            </div>
+            {% if horse.is_value_bet %}
+            <div class="ms-1"><span class="value-badge">值博</span></div>
+            {% endif %}
+          </div>
+
+          <!-- Confidence bar -->
+          <div class="confidence-bar-wrap">
+            <div class="confidence-bar" style="width: {{ (horse.confidence * 100)|round(0)|int }}%"
+                 data-confidence="{{ (horse.confidence * 100)|round(0)|int }}"></div>
+          </div>
+          {% endfor %}
+
+          {% else %}
+          <div class="text-muted text-center py-3 small">預測生成中...</div>
+          {% endif %}
+        </div>
+
+        <!-- Card Footer -->
+        <div class="race-card-footer">
+          <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex gap-2">
+              <span class="footer-stat">
+                <i class="bi bi-people me-1"></i>{{ card.race.horses|length }} 馬
+              </span>
+              {% if card.value_count > 0 %}
+              <span class="footer-stat value">
+                <i class="bi bi-gem me-1"></i>{{ card.value_count }} 值博
+              </span>
+              {% endif %}
+            </div>
+            <div class="race-confidence">
+              信心度
+              <span class="conf-pct {% if card.confidence_pct >= 70 %}high{% elif card.confidence_pct >= 50 %}mid{% else %}low{% endif %}">
+                {{ card.confidence_pct }}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Initialise countdown timers
+document.querySelectorAll(".countdown-tag[data-time]").forEach(el => {
+  const timeStr = el.dataset.time;
+  startCountdown(el, timeStr);
+});
+</script>
+{% endblock %}

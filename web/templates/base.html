@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}HKJC 賽馬預測系統{% endblock %}</title>
+
+  <!-- Bootstrap 5 Dark -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" />
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+  <!-- Google Fonts (Traditional Chinese support) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+
+  {% block head_extra %}{% endblock %}
+</head>
+<body data-bs-theme="dark">
+
+<!-- ── Navigation ── -->
+<nav class="navbar navbar-expand-lg navbar-dark sticky-top" id="main-nav">
+  <div class="container-fluid px-3 px-md-4">
+
+    <!-- Logo & Brand -->
+    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('index') }}">
+      <svg class="brand-logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"
+           aria-label="HKJC 賽馬預測系統" width="36" height="36">
+        <!-- Horse silhouette abstract mark -->
+        <circle cx="20" cy="20" r="19" stroke="#f5a623" stroke-width="2"/>
+        <!-- Body -->
+        <path d="M12 28 Q14 20 18 18 Q22 16 26 14" stroke="#f5a623" stroke-width="2.5" stroke-linecap="round"/>
+        <!-- Head/neck -->
+        <path d="M26 14 Q28 12 30 10 Q31 8 29 8 Q27 8 26 10 Q25 12 26 14" fill="#f5a623"/>
+        <!-- Legs -->
+        <path d="M14 26 L13 32 M17 27 L16 32 M22 25 L22 32 M25 24 L26 32"
+              stroke="#f5a623" stroke-width="1.8" stroke-linecap="round"/>
+        <!-- Tail -->
+        <path d="M12 28 Q8 26 7 22" stroke="#f5a623" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <div class="brand-title">賽馬預測</div>
+        <div class="brand-sub">HKJC Predictor</div>
+      </div>
+    </a>
+
+    <!-- Mobile toggle -->
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#navMenu" aria-controls="navMenu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <!-- Menu -->
+    <div class="collapse navbar-collapse" id="navMenu">
+      <ul class="navbar-nav me-auto ms-3 gap-1">
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}"
+             href="{{ url_for('index') }}">
+            <i class="bi bi-calendar3 me-1"></i>今日賽事
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if request.endpoint == 'backtest' %}active{% endif %}"
+             href="{{ url_for('backtest') }}">
+            <i class="bi bi-graph-up me-1"></i>回測成績
+          </a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="#" onclick="refreshData()" title="刷新數據">
+            <i class="bi bi-arrow-clockwise me-1"></i>刷新
+          </a>
+        </li>
+      </ul>
+
+      <!-- Status indicators -->
+      <div class="d-flex align-items-center gap-3">
+        <div class="status-pill">
+          <span class="status-dot {% if demo_mode is defined and demo_mode %}demo{% else %}live{% endif %}"></span>
+          <span class="status-text">{% if demo_mode is defined and demo_mode %}模擬模式{% else %}實時數據{% endif %}</span>
+        </div>
+        <div class="live-clock text-muted small" id="live-clock">--:--</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Page content ── -->
+<main class="main-content">
+  {% block content %}{% endblock %}
+</main>
+
+<!-- ── Footer ── -->
+<footer class="site-footer">
+  <div class="container py-3">
+    <div class="row align-items-center">
+      <div class="col-md-8">
+        <p class="footer-disclaimer mb-1">
+          <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>
+          <strong>免責聲明：</strong>本系統僅供研究參考，不構成任何投注建議。賽馬投注涉及風險，請量力而為。
+        </p>
+        <p class="footer-sub text-muted mb-0">
+          數據來源：香港賽馬會 (HKJC) &nbsp;|&nbsp; 本系統與香港賽馬會並無關係
+        </p>
+      </div>
+      <div class="col-md-4 text-md-end mt-2 mt-md-0">
+        <span class="text-muted small">HKJC 賽馬預測系統 &copy; 2026</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Custom JS -->
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>
