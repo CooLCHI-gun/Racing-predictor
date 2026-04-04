@@ -11,6 +11,7 @@ htmlcov/
 # Virtual environments
 .venv/
 .venv*/
+.venv311/
 venv/
 
 # Local settings and secrets
@@ -23,3 +24,12 @@ Thumbs.db
 
 # Runtime artifacts
 data/hkjc_predictor.log
+*.log
+
+# Generated runtime state
+data/predictions/cron_state.json
+data/predictions/tick_notified.json
+data/reports/maintenance_*.json
+
+# Optional local output folders
+artifacts/

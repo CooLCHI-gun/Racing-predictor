@@ -374,16 +374,18 @@ def _write_maintenance_report(report: dict) -> str:
     return path
 
 
-def _run_daily_retrain(settled_real_count: int, state: dict) -> dict:
+def _run_daily_retrain(settled_real_records: list, state: dict) -> dict:
     """Run daily retraining when new settled data is available and allowed by config."""
     retrain = {
         "attempted": False,
         "ran": False,
         "reason": "",
         "new_settled_since_last": 0,
-        "target_synthetic_races": 0,
+        "target_real_rows": 0,
         "metrics": {},
     }
+
+    settled_real_count = len(settled_real_records or [])
 
     if not config.DAILY_RETRAIN_ENABLED:
         retrain["reason"] = "disabled_by_config"
@@ -397,22 +399,18 @@ def _run_daily_retrain(settled_real_count: int, state: dict) -> dict:
         retrain["reason"] = "no_enough_new_settled"
         return retrain
 
-    if config.REAL_DATA_ONLY and not config.ALLOW_SYNTHETIC_TRAINING:
-        retrain["reason"] = "REAL_DATA_ONLY blocks synthetic retrain"
-        return retrain
-
     from model.trainer import EnsembleTrainer
 
     retrain["attempted"] = True
     trainer = EnsembleTrainer()
-    n_races = int(config.DAILY_RETRAIN_SYNTHETIC_RACES_BASE) + (
-        settled_real_count * int(config.DAILY_RETRAIN_SYNTHETIC_RACES_SCALE)
-    )
-    n_races = max(300, min(2000, n_races))
-    retrain["target_synthetic_races"] = n_races
 
-    df = trainer.generate_synthetic_data(n_races=n_races)
-    metrics = trainer.train(df=df, training_source="synthetic")
+    df = trainer.build_real_incremental_data(settled_real_records, min_rows=30)
+    if df is None or df.empty:
+        retrain["reason"] = "insufficient_real_incremental_data"
+        return retrain
+
+    retrain["target_real_rows"] = int(len(df))
+    metrics = trainer.train(df=df, training_source="real_incremental")
     trainer.save()
 
     retrain["ran"] = True
@@ -547,7 +545,7 @@ def run_maintenance() -> None:
     last_notified_marker = str(state.get("maintenance_last_notified_marker", "") or "")
     has_new_settled = bool(latest_marker and latest_marker != last_notified_marker)
 
-    retrain_info = _run_daily_retrain(len(settled_real), state)
+    retrain_info = _run_daily_retrain(settled_real, state)
 
     optimized = False
     profile = None

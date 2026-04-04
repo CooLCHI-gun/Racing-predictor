@@ -76,6 +76,9 @@ class PredictionResult:
     # Recommendation selected by adaptive strategy
     recommended_winner: Optional[HorsePrediction] = None
 
+    # Full feature snapshot captured at prediction time for incremental retraining
+    feature_rows: List[Dict] = field(default_factory=list)
+
 
 class RacePredictor:
     """
@@ -174,6 +177,23 @@ class RacePredictor:
         # Build HorsePrediction objects
         horses: List[HorsePrediction] = []
         max_model_prob = model_probs.max()
+
+        # Capture a serializable snapshot of full model features at prediction time.
+        feature_rows: List[Dict] = []
+        for _, row in features_df.iterrows():
+            horse_number = int(row.get("horse_number", 0) or 0)
+            if horse_number <= 0:
+                continue
+            snapshot = {
+                "horse_number": horse_number,
+            }
+            for col in MODEL_FEATURE_COLS:
+                value = row.get(col, 0.0)
+                try:
+                    snapshot[col] = float(value)
+                except (TypeError, ValueError):
+                    snapshot[col] = 0.0
+            feature_rows.append(snapshot)
 
         for i, (_, row) in enumerate(features_df.iterrows()):
             mp = model_probs[i]
@@ -281,6 +301,7 @@ class RacePredictor:
             confidence=confidence,
             best_ev_horse=best_ev,
             recommended_winner=recommended,
+            feature_rows=feature_rows,
         )
 
     def predict_race_from_components(

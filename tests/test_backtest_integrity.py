@@ -55,6 +55,35 @@ def test_backtester_record_prediction_and_result_cycle(tmp_path):
     assert summary.total_races >= 1
 
 
+def test_backtester_auto_labels_feature_rows_on_result(tmp_path):
+    history_path = tmp_path / "history.json"
+    bt = Backtester(history_file=str(history_path))
+
+    pred = DummyPredictionResult()
+    pred.top5 = [
+        type("H", (), {"horse_number": 3, "win_odds": 5.0})(),
+        type("H", (), {"horse_number": 5, "win_odds": 6.0})(),
+        type("H", (), {"horse_number": 7, "win_odds": 7.0})(),
+    ]
+    pred.feature_rows = [
+        {"horse_number": 3, "elo_rating": 1530.0, "win_odds": 5.0},
+        {"horse_number": 5, "elo_rating": 1510.0, "win_odds": 6.0},
+        {"horse_number": 7, "elo_rating": 1490.0, "win_odds": 7.0},
+    ]
+
+    race_id = bt.record_prediction(race_id="2026-04-03_ST_9", prediction_result=pred, race_date=pred.race_date)
+    bt.record_result(race_id, actual_result=[5, 3, 8], win_dividend=40.0, is_real_result=True)
+
+    rec = bt._records[race_id]
+    assert len(rec.feature_rows) == 3
+
+    by_horse = {int(r["horse_number"]): r for r in rec.feature_rows}
+    assert by_horse[5]["is_top3"] == 1
+    assert by_horse[5]["is_winner"] == 1
+    assert by_horse[5]["finish_position"] == 1
+    assert by_horse[7]["is_top3"] == 0
+
+
 def test_backtester_invalid_inputs(tmp_path):
     history_path = tmp_path / "history.json"
     bt = Backtester(history_file=str(history_path))

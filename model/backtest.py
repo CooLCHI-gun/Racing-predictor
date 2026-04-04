@@ -60,6 +60,7 @@ class RacePredictionRecord:
     # Market data at prediction time
     predicted_winner_odds: float
     predicted_top3_odds: List[float]
+    feature_rows: List[Dict] = field(default_factory=list)
 
     # Actual results (filled in after race)
     actual_result: List[int] = field(default_factory=list)   # finish order
@@ -227,6 +228,7 @@ class Backtester:
             predicted_winner=selected.horse_number if selected else 0,
             predicted_winner_odds=selected.win_odds if selected else 0.0,
             predicted_top3_odds=[h.win_odds for h in top3],
+            feature_rows=list(getattr(pr, "feature_rows", []) or []),
             model_confidence=getattr(selected, "confidence", pr.confidence) if selected else pr.confidence,
         )
         self._records[race_id] = record
@@ -309,6 +311,27 @@ class Backtester:
 
         # Trio bet
         record.trio_bet_return = trio_dividend if record.trio_hit and trio_dividend else 0.0
+
+        # Auto-label stored feature snapshot for true incremental training.
+        if record.feature_rows:
+            finish_pos_map = {horse_no: idx + 1 for idx, horse_no in enumerate(actual_result)}
+            labeled_rows: List[Dict] = []
+            for row in record.feature_rows:
+                if not isinstance(row, dict):
+                    continue
+                horse_no = int(row.get("horse_number", 0) or 0)
+                if horse_no <= 0:
+                    continue
+                out = dict(row)
+                out["race_id"] = record.race_id
+                out["race_date"] = record.race_date
+                out["is_top3"] = 1 if horse_no in actual_top3 else 0
+                out["is_winner"] = 1 if horse_no == record.actual_winner else 0
+                out["finish_position"] = int(finish_pos_map.get(horse_no, 0))
+                out["is_real_result"] = int(bool(record.is_real_result))
+                out["label_recorded_at"] = record.result_recorded_at
+                labeled_rows.append(out)
+            record.feature_rows = labeled_rows
 
         self._records[race_id] = record
         if self.repair_missing:
