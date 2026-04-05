@@ -616,6 +616,7 @@ def _send_failure_alert(mode: str, err: Exception) -> None:
             f"error={type(err).__name__}: {err}\n"
             f"fingerprint={fingerprint[:12]}\n"
             + ("\n".join(suppression_lines) + "\n" if suppression_lines else "")
+            +
             f"traceback:\n{tb[:3000]}"
         )
         notifier.send_sync(
