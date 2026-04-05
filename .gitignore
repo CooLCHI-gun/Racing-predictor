@@ -33,3 +33,10 @@ data/reports/maintenance_*.json
 
 # Optional local output folders
 artifacts/
+
+# Large generated datasets / exports
+data/**/*.csv
+data/**/*.parquet
+data/**/*.feather
+data/**/*.pkl
+data/**/*.joblib

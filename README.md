@@ -106,17 +106,20 @@ python run.py --mode web --debug
 # Web 儀表板 + 自動排程
 python run.py --mode web
 
-# 一鍵診斷（適合 Railway log 排障）
+# 一鍵診斷（適合排程/部署 log 排障）
 python run.py --mode debug
 
-# 一次性輪詢（適合 Railway Cron 每5分鐘）
+# 一次性輪詢（適合外部 Cron 每 5 分鐘）
 python run.py --mode tick
 
-# 單一 cron command（Railway 只可設一條指令時）
+# 單一 cron command（平台僅可設一條排程指令時）
 python run.py --mode cron
 
 # 每日維護（回測 + 優化 + Telegram 摘要）
 python run.py --mode maintenance
+
+# 套用資料留存政策（清理超過保留期的 artifact）
+python run.py --mode retention-cleanup
 
 # 一次性歷史來源溯源遷移（C/D + 原因）
 python run.py --mode migrate-provenance
@@ -246,6 +249,12 @@ GitHub Actions 設定步驟：
     - `CRON_MAINTENANCE_WINDOW_MINS=10`
     - `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=true`
     - `DAILY_RETRAIN_ENABLED=true`
+    - `TELEGRAM_ALERT_ON_FAILURE=true`（cron/maintenance 致命錯誤即時告警）
+    - `TELEGRAM_ALERT_COOLDOWN_MINS=30`（同一錯誤告警冷卻時間，分鐘）
+    - `TELEGRAM_ALERT_STATE_FILE=data/predictions/alert_state.json`（告警去重狀態檔）
+    - `ENABLE_DAILY_ALERT_NOISE_SUMMARY=true`（maintenance 推送每日抑制噪音摘要）
+    - `ALERT_NOISE_TOP_N=5`（每日噪音摘要最多列出幾個 fingerprint）
+    - `TRAINING_RETENTION_MANIFEST_FILE=data/training_retention_manifest.json`
 5. 到 **Actions** 頁面啟用 workflow。
 
 預設推送時間（HKT）：
@@ -259,6 +268,29 @@ maintenance 輸出（`data/reports/`）：
 2. `walkforward_YYYY-MM-DD.json`：walk-forward 滾動驗證報告（訓練窗 / 測試窗）
 3. `authenticity_audit_YYYY-MM-DD.json`：每場資料來源溯源與可信等級（A/B/C/D）
 4. `provenance_migration_YYYY-MM-DD.json`：一次性歷史來源回填遷移結果（C/D 分佈與規則）
+
+資料留存政策（90 天 artifact）：
+
+1. 設定檔：`data/retention_policy.json`
+2. 預設啟用於 `maintenance`（可用 `ENABLE_RETENTION_CLEANUP=false` 關閉）
+3. 亦可手動執行：`python run.py --mode retention-cleanup`
+4. 只清理報告與 debug artifact，不會刪除 `data/models/` 與 `data/predictions/history.json`
+
+訓練資料保留清單（machine-readable）：
+
+1. 設定檔：`data/training_retention_manifest.json`
+2. maintenance 會自動檢查：必要檔案是否存在、A/B/C/D 分級數量、是否達到最小可訓練樣本門檻
+3. 預設只允許 A/B（高品質來源）進入每日增量再訓練，C/D 保留於歷史但不進訓練集
+4. 檢查結果會寫入 `maintenance_YYYY-MM-DD.json` 的 `training_retention` 與 `retrain.quality_gate`
+
+失敗自動 Telegram 通知：
+
+1. 啟用 `TELEGRAM_ALERT_ON_FAILURE=true` 後，`run.py --mode cron` 或其他模式若發生致命錯誤，會自動推送告警
+2. 告警內容包含 mode、錯誤類型與精簡 traceback，方便你直接從通知定位問題
+3. 已內建「同錯誤去重 + 冷卻時間」：以 mode + exception 類型 + message 產生 fingerprint，在 `TELEGRAM_ALERT_COOLDOWN_MINS` 內相同 fingerprint 不重複推送
+4. 去重狀態會持久化到 `TELEGRAM_ALERT_STATE_FILE`，即使程序重啟仍可避免短時間重複轟炸
+5. 冷卻結束後下一次告警會附上 `suppressed_since_last_sent` 與抑制時間區間，方便觀察告警噪音量
+6. maintenance 會主動推送「每日抑制統計摘要」（top noisy fingerprints），即使當日無新結算賽果，只要有噪音抑制也會推送
 
 策略檔（`data/models/`）：
 
@@ -279,11 +311,6 @@ maintenance 輸出（`data/reports/`）：
 6. 若資料來源方提出限制、下架或停止要求，應立即停用相關抓取、儲存與傳播流程。
 7. 本專案不鼓勵或引導任何非法賭博行為，使用者須自行遵守香港及所在地法例。
 8. 理性投注及負責任博彩：如有需要，請致電賭博輔導熱線 1834 633。
-
-### Railway（可選備用）
-
-若你仍要用 Railway，建議單一 command：`python run.py --mode cron`
-（其行為與 GitHub Actions 的排程模式一致）。
 
 ```bash
 # 使用 gunicorn 生產服務

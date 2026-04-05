@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "description": "Artifact retention policy with default 90-day lifecycle for generated reports/debug files.",
+  "rules": [
+    {
+      "name": "maintenance_reports_90d",
+      "enabled": true,
+      "retention_days": 90,
+      "patterns": [
+        "data/reports/maintenance_*.json",
+        "data/reports/walkforward_*.json",
+        "data/reports/authenticity_audit_*.json",
+        "data/reports/output_language_audit_*.json",
+        "data/reports/provenance_migration_*.json",
+        "data/reports/validation_*.json"
+      ]
+    },
+    {
+      "name": "debug_html_90d",
+      "enabled": true,
+      "retention_days": 90,
+      "patterns": [
+        "data/processed/_debug_*.html"
+      ]
+    },
+    {
+      "name": "runtime_logs_90d",
+      "enabled": true,
+      "retention_days": 90,
+      "patterns": [
+        "data/*.log"
+      ]
+    }
+  ],
+  "protected_paths": [
+    "data/models/",
+    "data/training_retention_manifest.json",
+    "data/predictions/history.json",
+    "data/predictions/cron_state.json",
+    "data/predictions/tick_notified.json"
+  ]
+}

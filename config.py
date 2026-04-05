@@ -57,6 +57,21 @@ class Config:
     TELEGRAM_LANGUAGE_GUARD: bool = field(
         default_factory=lambda: _env_bool("TELEGRAM_LANGUAGE_GUARD", True)
     )
+    TELEGRAM_ALERT_ON_FAILURE: bool = field(
+        default_factory=lambda: _env_bool("TELEGRAM_ALERT_ON_FAILURE", True)
+    )
+    TELEGRAM_ALERT_COOLDOWN_MINS: int = field(
+        default_factory=lambda: _env_int("TELEGRAM_ALERT_COOLDOWN_MINS", 30)
+    )
+    TELEGRAM_ALERT_STATE_FILE: str = field(
+        default_factory=lambda: _env_str("TELEGRAM_ALERT_STATE_FILE", "data/predictions/alert_state.json")
+    )
+    ENABLE_DAILY_ALERT_NOISE_SUMMARY: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_DAILY_ALERT_NOISE_SUMMARY", True)
+    )
+    ALERT_NOISE_TOP_N: int = field(
+        default_factory=lambda: _env_int("ALERT_NOISE_TOP_N", 5)
+    )
 
     # ── Model ───────────────────────────────────────────────────────────────
     MODEL_PATH: str = "data/models/"
@@ -111,6 +126,15 @@ class Config:
     )
     MAINTENANCE_REPORT_DIR: str = field(
         default_factory=lambda: _env_str("MAINTENANCE_REPORT_DIR", "data/reports")
+    )
+    ENABLE_RETENTION_CLEANUP: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_RETENTION_CLEANUP", True)
+    )
+    RETENTION_POLICY_FILE: str = field(
+        default_factory=lambda: _env_str("RETENTION_POLICY_FILE", "data/retention_policy.json")
+    )
+    TRAINING_RETENTION_MANIFEST_FILE: str = field(
+        default_factory=lambda: _env_str("TRAINING_RETENTION_MANIFEST_FILE", "data/training_retention_manifest.json")
     )
     DAILY_RETRAIN_ENABLED: bool = field(default_factory=lambda: _env_bool("DAILY_RETRAIN_ENABLED", True))
     DAILY_RETRAIN_MIN_NEW_SETTLED: int = field(

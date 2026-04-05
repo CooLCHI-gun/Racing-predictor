@@ -285,7 +285,8 @@ class Backtester:
         record.is_real_result = bool(is_real_result)
         record.result_source = str(result_source or "")
         record.result_source_url = str(result_source_url or "")
-        record.result_source_confidence = str(result_source_confidence or "D").upper()[:1]
+        conf = str(result_source_confidence or "D").upper()[:1]
+        record.result_source_confidence = conf if conf in {"A", "B", "C", "D"} else "D"
         record.result_source_note = str(result_source_note or "")
         record.result_recorded_at = datetime.now().isoformat()
 

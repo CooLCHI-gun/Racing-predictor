@@ -6,10 +6,11 @@ Main entry point for the HKJC Horse Racing Prediction System.
 Usage:
     python run.py                    # Start Flask + scheduler (default)
     python run.py --mode web         # Flask web dashboard only
-    python run.py --mode debug       # One-shot diagnostics for Railway logs
+    python run.py --mode debug       # One-shot diagnostics for scheduled runs
     python run.py --mode cron        # Single-command cron: tick + timed maintenance
     python run.py --mode tick        # One-shot fetch + predict + Telegram send
     python run.py --mode maintenance # Run backtest + optimize + Telegram summary
+    python run.py --mode retention-cleanup # Apply retention policy and prune old artifacts
     python run.py --mode authenticity-audit # Export provenance authenticity audit report
     python run.py --mode migrate-provenance # One-time migrate legacy source provenance (C/D)
     python run.py --mode send-all-previews-now # Force send pre-race preview for all races
@@ -27,12 +28,15 @@ Usage:
       --no-scheduler  Start Flask without scheduler
 """
 import argparse
+import glob
+import hashlib
 import json
 import logging
 import os
 import sys
+import traceback
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 # ── Ensure project root is on Python path ─────────────────────────────────────
@@ -345,6 +349,335 @@ def _save_json_state(path: str, payload: dict) -> None:
         logger.warning(f"Could not save cron state: {e}")
 
 
+def _apply_retention_policy() -> dict:
+    """Apply retention policy to generated artifacts and return cleanup summary."""
+    policy_path = getattr(config, "RETENTION_POLICY_FILE", "data/retention_policy.json")
+    default_policy = {
+        "version": "1.0",
+        "rules": [
+            {
+                "name": "artifact_reports_90d",
+                "enabled": True,
+                "retention_days": 90,
+                "patterns": ["data/reports/*.json", "data/processed/_debug_*.html"],
+            }
+        ],
+    }
+
+    policy = default_policy
+    if os.path.exists(policy_path):
+        try:
+            with open(policy_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                policy = loaded
+        except Exception as e:
+            logger.warning("Retention policy parse failed (%s): %s", policy_path, e)
+
+    now_ts = datetime.now(HKT).timestamp()
+    summary = {
+        "policy_path": policy_path,
+        "policy_version": str(policy.get("version", "")),
+        "scanned_files": 0,
+        "deleted_files": 0,
+        "deleted_paths": [],
+        "errors": [],
+    }
+    protected = [str(p).replace("\\", "/").rstrip("/") for p in list(policy.get("protected_paths", []) or [])]
+
+    def _is_protected(path: str) -> bool:
+        p = str(path).replace("\\", "/")
+        for pref in protected:
+            if not pref:
+                continue
+            if p == pref or p.startswith(pref + "/"):
+                return True
+        return False
+
+    for rule in policy.get("rules", []):
+        if not isinstance(rule, dict) or not bool(rule.get("enabled", True)):
+            continue
+
+        retention_days = int(rule.get("retention_days", 90) or 90)
+        if retention_days <= 0:
+            continue
+        threshold_seconds = retention_days * 86400
+        patterns = list(rule.get("patterns", []) or [])
+
+        for pattern in patterns:
+            for path in glob.glob(pattern, recursive=True):
+                if not os.path.isfile(path):
+                    continue
+                if _is_protected(path):
+                    continue
+                summary["scanned_files"] += 1
+                try:
+                    age_seconds = now_ts - os.path.getmtime(path)
+                    if age_seconds >= threshold_seconds:
+                        os.remove(path)
+                        summary["deleted_files"] += 1
+                        if len(summary["deleted_paths"]) < 20:
+                            summary["deleted_paths"].append(path)
+                except Exception as e:
+                    summary["errors"].append(f"{path}: {e}")
+
+    logger.info(
+        "Retention cleanup done: scanned=%s deleted=%s errors=%s",
+        summary["scanned_files"],
+        summary["deleted_files"],
+        len(summary["errors"]),
+    )
+    return summary
+
+
+def _load_training_retention_manifest() -> dict:
+    """Load machine-readable training retention manifest, writing defaults if missing."""
+    manifest_path = getattr(config, "TRAINING_RETENTION_MANIFEST_FILE", "data/training_retention_manifest.json")
+    default_manifest = {
+        "version": "1.0",
+        "updated_at": datetime.now(HKT).isoformat(),
+        "quality_tiers": {
+            "A": {"label": "官方 GraphQL", "allow_training": True, "priority": 1},
+            "B": {"label": "官方 localresults", "allow_training": True, "priority": 2},
+            "C": {"label": "可追溯回填", "allow_training": False, "priority": 3},
+            "D": {"label": "來源未標註", "allow_training": False, "priority": 4},
+        },
+        "training_policy": {
+            "allowed_confidence_tiers": ["A", "B"],
+            "minimum_total_records": 24,
+            "minimum_by_tier": {"A": 8, "B": 8},
+        },
+        "required_assets": [
+            {"path": "data/predictions/history.json", "must_exist": True},
+            {"path": "data/models/meta.json", "must_exist": False},
+            {"path": "data/models/strategy_profile.json", "must_exist": False},
+        ],
+        "retention_protection": {
+            "paths": [
+                "data/predictions/history.json",
+                "data/models/",
+                "data/models/meta.json",
+            ]
+        },
+    }
+
+    if not os.path.exists(manifest_path):
+        os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(default_manifest, f, ensure_ascii=False, indent=2)
+        return default_manifest
+
+    try:
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            return payload
+    except Exception as e:
+        logger.warning("Failed to parse training retention manifest (%s): %s", manifest_path, e)
+
+    return default_manifest
+
+
+def _source_quality_tier(rec) -> str:
+    tier = str(getattr(rec, "result_source_confidence", "") or "D").strip().upper()[:1]
+    return tier if tier in {"A", "B", "C", "D"} else "D"
+
+
+def _evaluate_training_retention_status(settled_real: List, manifest: dict) -> Tuple[List, dict]:
+    """Evaluate quality-tier retention readiness and return eligible records plus report."""
+    policy = dict(manifest.get("training_policy", {}) or {})
+    allowed_tiers = [str(x).upper()[:1] for x in list(policy.get("allowed_confidence_tiers", ["A", "B"]) or ["A", "B"])]
+    allowed_tiers = [x for x in allowed_tiers if x in {"A", "B", "C", "D"}]
+    if not allowed_tiers:
+        allowed_tiers = ["A", "B"]
+
+    by_tier: Dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+    eligible = []
+    for rec in settled_real:
+        tier = _source_quality_tier(rec)
+        by_tier[tier] += 1
+        if tier in allowed_tiers:
+            eligible.append(rec)
+
+    min_total = max(1, int(policy.get("minimum_total_records", 24) or 24))
+    min_by_tier = dict(policy.get("minimum_by_tier", {}) or {})
+    blocking_reasons: List[str] = []
+
+    if len(eligible) < min_total:
+        blocking_reasons.append(f"eligible_records_below_min_total({len(eligible)}<{min_total})")
+
+    for tier, min_count in min_by_tier.items():
+        t = str(tier).upper()[:1]
+        if t not in by_tier:
+            continue
+        required = max(0, int(min_count or 0))
+        if by_tier[t] < required:
+            blocking_reasons.append(f"tier_{t}_below_min({by_tier[t]}<{required})")
+
+    asset_checks = []
+    for item in list(manifest.get("required_assets", []) or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path", "") or "")
+        if not path:
+            continue
+        must_exist = bool(item.get("must_exist", True))
+        exists = os.path.exists(path)
+        ok = (exists or not must_exist)
+        asset_checks.append({"path": path, "must_exist": must_exist, "exists": exists, "ok": ok})
+        if not ok:
+            blocking_reasons.append(f"missing_required_asset:{path}")
+
+    report = {
+        "manifest_path": getattr(config, "TRAINING_RETENTION_MANIFEST_FILE", "data/training_retention_manifest.json"),
+        "allowed_tiers": allowed_tiers,
+        "counts_by_tier": by_tier,
+        "total_settled_real": len(settled_real),
+        "eligible_records": len(eligible),
+        "minimum_total_records": min_total,
+        "minimum_by_tier": min_by_tier,
+        "asset_checks": asset_checks,
+        "ready_for_retrain": len(blocking_reasons) == 0,
+        "blocking_reasons": blocking_reasons,
+    }
+    return eligible, report
+
+
+def _send_failure_alert(mode: str, err: Exception) -> None:
+    """Best-effort Telegram alert for fatal run failures."""
+    if not bool(getattr(config, "TELEGRAM_ALERT_ON_FAILURE", True)):
+        return
+
+    try:
+        from notifier.telegram import TelegramNotifier
+
+        cooldown_mins = max(1, int(getattr(config, "TELEGRAM_ALERT_COOLDOWN_MINS", 30) or 30))
+        state_path = str(getattr(config, "TELEGRAM_ALERT_STATE_FILE", "data/predictions/alert_state.json") or "")
+
+        err_type = type(err).__name__
+        err_msg = str(err or "").strip()
+        fingerprint_src = f"{mode}|{err_type}|{err_msg}"
+        fingerprint = hashlib.sha1(fingerprint_src.encode("utf-8", errors="ignore")).hexdigest()
+
+        now_hkt = datetime.now(HKT)
+        now_ts = now_hkt.timestamp()
+
+        state = _load_json_state(state_path)
+        alerts = state.get("alerts", {}) if isinstance(state.get("alerts", {}), dict) else {}
+        prev = alerts.get(fingerprint, {}) if isinstance(alerts.get(fingerprint, {}), dict) else {}
+        last_ts = float(prev.get("last_sent_ts", 0.0) or 0.0)
+        elapsed = max(0.0, now_ts - last_ts)
+
+        if last_ts > 0 and elapsed < (cooldown_mins * 60):
+            prev["suppressed_count"] = int(prev.get("suppressed_count", 0) or 0) + 1
+            day_key = now_hkt.strftime("%Y-%m-%d")
+            by_day = prev.get("suppressed_by_day", {}) if isinstance(prev.get("suppressed_by_day", {}), dict) else {}
+            by_day[day_key] = int(by_day.get(day_key, 0) or 0) + 1
+            # Keep recent 30 days only to bound state size.
+            if len(by_day) > 30:
+                keys = sorted(by_day.keys())
+                for k in keys[:-30]:
+                    by_day.pop(k, None)
+            prev["suppressed_by_day"] = by_day
+            prev["last_seen_ts"] = now_ts
+            prev["last_seen_at"] = now_hkt.isoformat()
+            prev["mode"] = mode
+            prev["error_type"] = err_type
+            prev["error_message"] = err_msg[:500]
+            alerts[fingerprint] = prev
+            state["alerts"] = alerts
+            _save_json_state(state_path, state)
+            logger.info(
+                "Suppress duplicate failure alert: mode=%s fingerprint=%s cooldown_mins=%s",
+                mode,
+                fingerprint[:12],
+                cooldown_mins,
+            )
+            return
+
+        notifier = TelegramNotifier()
+        if not notifier.is_configured():
+            return
+
+        tb = traceback.format_exc(limit=10)
+        suppressed_count = int(prev.get("suppressed_count", 0) or 0)
+        last_sent_at = str(prev.get("last_sent_at", "") or "")
+        last_seen_at = str(prev.get("last_seen_at", "") or "")
+        suppression_lines = []
+        if suppressed_count > 0:
+            suppression_lines.append(f"suppressed_since_last_sent={suppressed_count}")
+            if last_sent_at:
+                suppression_lines.append(f"suppression_window_start={last_sent_at}")
+            if last_seen_at:
+                suppression_lines.append(f"suppression_window_end={last_seen_at}")
+
+        body = (
+            f"mode={mode}\n"
+            f"error={type(err).__name__}: {err}\n"
+            f"fingerprint={fingerprint[:12]}\n"
+            + ("\n".join(suppression_lines) + "\n" if suppression_lines else "")
+            f"traceback:\n{tb[:3000]}"
+        )
+        notifier.send_sync(
+            "🚨 <b>排程執行失敗</b>\n"
+            f"時間: {datetime.now(HKT).strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+            f"\n<pre>{body}</pre>"
+        )
+
+        alerts[fingerprint] = {
+            "mode": mode,
+            "error_type": err_type,
+            "error_message": err_msg[:500],
+            "last_sent_ts": now_ts,
+            "last_sent_at": now_hkt.isoformat(),
+            "last_seen_ts": now_ts,
+            "last_seen_at": now_hkt.isoformat(),
+            "cooldown_mins": cooldown_mins,
+            "suppressed_count": 0,
+            "suppressed_by_day": dict(prev.get("suppressed_by_day", {}) if isinstance(prev.get("suppressed_by_day", {}), dict) else {}),
+        }
+        state["alerts"] = alerts
+        _save_json_state(state_path, state)
+    except Exception as notify_err:
+        logger.error("Failure alert send failed: %s", notify_err)
+
+
+def _get_daily_alert_noise_summary(target_date: str) -> dict:
+    """Build daily suppression summary from alert dedup state."""
+    state_path = str(getattr(config, "TELEGRAM_ALERT_STATE_FILE", "data/predictions/alert_state.json") or "")
+    top_n = max(1, int(getattr(config, "ALERT_NOISE_TOP_N", 5) or 5))
+    state = _load_json_state(state_path)
+    alerts = state.get("alerts", {}) if isinstance(state.get("alerts", {}), dict) else {}
+
+    rows = []
+    total = 0
+    for fingerprint, meta in alerts.items():
+        if not isinstance(meta, dict):
+            continue
+        by_day = meta.get("suppressed_by_day", {}) if isinstance(meta.get("suppressed_by_day", {}), dict) else {}
+        count = int(by_day.get(target_date, 0) or 0)
+        if count <= 0:
+            continue
+        total += count
+        rows.append({
+            "fingerprint": str(fingerprint)[:12],
+            "mode": str(meta.get("mode", "") or ""),
+            "error_type": str(meta.get("error_type", "") or ""),
+            "error_message": str(meta.get("error_message", "") or "")[:120],
+            "suppressed_count": count,
+        })
+
+    rows.sort(key=lambda x: int(x.get("suppressed_count", 0)), reverse=True)
+    top_rows = rows[:top_n]
+    return {
+        "date": target_date,
+        "state_path": state_path,
+        "total_suppressed": total,
+        "unique_fingerprints": len(rows),
+        "top_noisy": top_rows,
+    }
+
+
 def _should_run_maintenance_now(now_hkt: datetime) -> bool:
     """Return True when current time falls into the configured daily maintenance window."""
     target_minutes = int(config.CRON_MAINTENANCE_HOUR) * 60 + int(config.CRON_MAINTENANCE_MINUTE)
@@ -554,7 +887,7 @@ def _sync_recent_real_results(days_back: int = 2) -> dict:
 def run_tick() -> None:
     """
     Run one-shot cron cycle: fetch + predict + pre-race send, then exit.
-    Designed for Railway cron jobs (e.g. every 5 minutes).
+    Designed for external schedulers (e.g. every 5 minutes).
     """
     logger.info("=== Tick Mode ===")
     now_hkt = datetime.now(HKT)
@@ -680,8 +1013,14 @@ def run_maintenance() -> None:
 
     state_path = config.CRON_STATE_FILE
     state = _load_json_state(state_path)
+    today_str = date.today().strftime("%Y-%m-%d")
+    alert_noise_summary = _get_daily_alert_noise_summary(today_str)
 
     sync_info = _sync_recent_real_results(days_back=2)
+    retention_info = _apply_retention_policy() if getattr(config, "ENABLE_RETENTION_CLEANUP", True) else {
+        "skipped": True,
+        "reason": "disabled_by_config",
+    }
     if sync_info.get("updated", 0):
         logger.info(
             "Maintenance synced %s recent results for dates=%s",
@@ -694,11 +1033,30 @@ def run_maintenance() -> None:
     r30 = bt.calculate_roi("top1_win", 30, real_only=True)
 
     settled_real = bt.get_settled_records(real_only=True)
+    training_manifest = _load_training_retention_manifest()
+    retrain_candidates, retention_status = _evaluate_training_retention_status(settled_real, training_manifest)
     latest_marker = _latest_settled_marker(settled_real)
     last_notified_marker = str(state.get("maintenance_last_notified_marker", "") or "")
     has_new_settled = bool(latest_marker and latest_marker != last_notified_marker)
 
-    retrain_info = _run_daily_retrain(settled_real, state)
+    if retention_status.get("ready_for_retrain", False):
+        retrain_info = _run_daily_retrain(retrain_candidates, state)
+    else:
+        retrain_info = {
+            "attempted": False,
+            "ran": False,
+            "reason": "blocked_by_training_retention_policy",
+            "new_settled_since_last": 0,
+            "target_real_rows": 0,
+            "metrics": {},
+        }
+    retrain_info["quality_gate"] = {
+        "ready": bool(retention_status.get("ready_for_retrain", False)),
+        "allowed_tiers": list(retention_status.get("allowed_tiers", [])),
+        "blocking_reasons": list(retention_status.get("blocking_reasons", [])),
+        "counts_by_tier": dict(retention_status.get("counts_by_tier", {})),
+        "eligible_records": int(retention_status.get("eligible_records", 0) or 0),
+    }
 
     optimized = False
     profile = None
@@ -767,9 +1125,12 @@ def run_maintenance() -> None:
             })
 
     report = {
-        "date": date.today().strftime("%Y-%m-%d"),
+        "date": today_str,
         "generated_at": datetime.now(HKT).isoformat(),
         "result_sync": sync_info,
+        "retention_cleanup": retention_info,
+        "training_retention": retention_status,
+        "alert_noise_summary": alert_noise_summary,
         "has_new_settled": has_new_settled,
         "latest_settled_marker": latest_marker,
         "summary": {
@@ -814,12 +1175,13 @@ def run_maintenance() -> None:
         _save_json_state(state_path, state)
         return
 
-    if config.MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED and not has_new_settled:
+    noisy_count = int(alert_noise_summary.get("total_suppressed", 0) or 0)
+    if config.MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED and not has_new_settled and noisy_count <= 0:
         logger.info("No new settled real results; skip maintenance Telegram summary")
         _save_json_state(state_path, state)
         return
 
-    date_str = date.today().strftime("%Y-%m-%d")
+    date_str = today_str
     is_pro_style = (config.MESSAGE_STYLE or "pro").strip().lower() != "casual"
     lines = [
         f"{'🛠️✨ <b>每日維護摘要</b>' if is_pro_style else '🛠️ <b>每日更新</b>'} - {date_str}",
@@ -883,6 +1245,30 @@ def run_maintenance() -> None:
         f"• 原因: {retrain_info.get('reason', '')}",
         f"• 新增已結算場數: {retrain_info.get('new_settled_since_last', 0)}",
     ])
+
+    gate = retrain_info.get("quality_gate", {})
+    if gate:
+        tier_counts = gate.get("counts_by_tier", {})
+        lines.extend([
+            f"• 可訓練等級: {','.join(gate.get('allowed_tiers', [])) or 'N/A'}",
+            f"• 高品質樣本: {gate.get('eligible_records', 0)}",
+            f"• A/B/C/D: {tier_counts.get('A', 0)}/{tier_counts.get('B', 0)}/{tier_counts.get('C', 0)}/{tier_counts.get('D', 0)}",
+        ])
+        if gate.get("blocking_reasons"):
+            lines.append(f"• 阻擋原因: {'; '.join(gate.get('blocking_reasons', [])[:2])}")
+
+    if bool(getattr(config, "ENABLE_DAILY_ALERT_NOISE_SUMMARY", True)):
+        lines.extend([
+            "",
+            f"{'<b>🔕 告警抑制噪音摘要</b>' if is_pro_style else '<b>🔕 告警噪音摘要</b>'}",
+            f"• 今日抑制總數: {alert_noise_summary.get('total_suppressed', 0)}",
+            f"• 指紋數量: {alert_noise_summary.get('unique_fingerprints', 0)}",
+        ])
+        for row in list(alert_noise_summary.get("top_noisy", []) or [])[:3]:
+            lines.append(
+                f"• {row.get('fingerprint', '')} [{row.get('mode', '')}] {row.get('error_type', '')}: "
+                f"{row.get('suppressed_count', 0)} 次"
+            )
 
     metrics = retrain_info.get("metrics", {})
     if metrics:
@@ -951,6 +1337,16 @@ def run_cron() -> None:
     state["maintenance_sent"] = maint_map
     _save_json_state(state_path, state)
     logger.info("Maintenance marked as completed for today")
+
+
+def run_retention_cleanup() -> None:
+    """Run artifact retention cleanup once and print summary."""
+    summary = _apply_retention_policy()
+    print("\nRetention cleanup summary")
+    print(f"- policy_path: {summary.get('policy_path', '')}")
+    print(f"- scanned_files: {summary.get('scanned_files', 0)}")
+    print(f"- deleted_files: {summary.get('deleted_files', 0)}")
+    print(f"- errors: {len(summary.get('errors', []))}\n")
 
 
 def run_backtest() -> None:
@@ -1322,6 +1718,7 @@ def main() -> None:
             "cron",
             "tick",
             "maintenance",
+            "retention-cleanup",
             "authenticity-audit",
             "migrate-provenance",
             "send-all-previews-now",
@@ -1347,55 +1744,66 @@ def main() -> None:
     logger.info(f"HKJC 賽馬預測系統 starting in [{args.mode.upper()}] mode")
     logger.info(f"Demo mode: {'ON' if config.DEMO_MODE else 'OFF (real data)'}")
 
-    if args.mode == "demo":
-        config.DEMO_MODE = True
-        config.REAL_DATA_ONLY = False
-        config.ALLOW_SYNTHETIC_TRAINING = True
-        logger.info("Forced DEMO_MODE=True, REAL_DATA_ONLY=False, ALLOW_SYNTHETIC_TRAINING=True")
-        run_web(port=args.port, debug=args.debug, with_scheduler=not args.no_scheduler)
+    try:
+        if args.mode == "demo":
+            config.DEMO_MODE = True
+            config.REAL_DATA_ONLY = False
+            config.ALLOW_SYNTHETIC_TRAINING = True
+            logger.info("Forced DEMO_MODE=True, REAL_DATA_ONLY=False, ALLOW_SYNTHETIC_TRAINING=True")
+            run_web(port=args.port, debug=args.debug, with_scheduler=not args.no_scheduler)
 
-    elif args.mode == "web":
-        run_web(port=args.port, debug=args.debug, with_scheduler=not args.no_scheduler)
+        elif args.mode == "web":
+            run_web(port=args.port, debug=args.debug, with_scheduler=not args.no_scheduler)
 
-    elif args.mode == "debug":
-        run_debug()
+        elif args.mode == "debug":
+            run_debug()
 
-    elif args.mode == "cron":
-        run_cron()
+        elif args.mode == "cron":
+            run_cron()
 
-    elif args.mode == "tick":
-        run_tick()
+        elif args.mode == "tick":
+            run_tick()
 
-    elif args.mode == "maintenance":
-        run_maintenance()
+        elif args.mode == "maintenance":
+            run_maintenance()
 
-    elif args.mode == "authenticity-audit":
-        run_authenticity_audit()
+        elif args.mode == "retention-cleanup":
+            run_retention_cleanup()
 
-    elif args.mode == "migrate-provenance":
-        run_migrate_provenance()
+        elif args.mode == "authenticity-audit":
+            run_authenticity_audit()
 
-    elif args.mode == "send-all-previews-now":
-        run_send_all_previews_now()
+        elif args.mode == "migrate-provenance":
+            run_migrate_provenance()
 
-    elif args.mode == "predict":
-        run_predict()
+        elif args.mode == "send-all-previews-now":
+            run_send_all_previews_now()
 
-    elif args.mode == "backtest":
-        run_backtest()
+        elif args.mode == "predict":
+            run_predict()
 
-    elif args.mode == "fetch":
-        run_fetch()
+        elif args.mode == "backtest":
+            run_backtest()
 
-    elif args.mode == "train":
-        run_train()
+        elif args.mode == "fetch":
+            run_fetch()
 
-    elif args.mode == "optimize":
-        run_optimize()
+        elif args.mode == "train":
+            run_train()
 
-    elif args.mode == "telegram-test":
-        run_telegram_test()
+        elif args.mode == "optimize":
+            run_optimize()
+
+        elif args.mode == "telegram-test":
+            run_telegram_test()
+    except Exception as e:
+        logger.exception("Run failed in mode=%s", args.mode)
+        _send_failure_alert(args.mode, e)
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        sys.exit(1)

@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-04-05T00:00:00+08:00",
+  "quality_tiers": {
+    "A": {
+      "label": "官方 GraphQL",
+      "allow_training": true,
+      "priority": 1
+    },
+    "B": {
+      "label": "官方 localresults",
+      "allow_training": true,
+      "priority": 2
+    },
+    "C": {
+      "label": "可追溯回填",
+      "allow_training": false,
+      "priority": 3
+    },
+    "D": {
+      "label": "來源未標註",
+      "allow_training": false,
+      "priority": 4
+    }
+  },
+  "training_policy": {
+    "allowed_confidence_tiers": [
+      "A",
+      "B"
+    ],
+    "minimum_total_records": 24,
+    "minimum_by_tier": {
+      "A": 8,
+      "B": 8
+    }
+  },
+  "required_assets": [
+    {
+      "path": "data/predictions/history.json",
+      "must_exist": true
+    },
+    {
+      "path": "data/models/meta.json",
+      "must_exist": false
+    },
+    {
+      "path": "data/models/strategy_profile.json",
+      "must_exist": false
+    }
+  ],
+  "retention_protection": {
+    "paths": [
+      "data/predictions/history.json",
+      "data/models/",
+      "data/models/meta.json"
+    ]
+  }
+}

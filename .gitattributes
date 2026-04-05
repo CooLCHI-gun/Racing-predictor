@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Treat large tabular artifacts as generated binary-like files in diffs
+*.csv -diff -merge linguist-generated
+*.parquet -diff -merge linguist-generated
+*.feather -diff -merge linguist-generated
+
+# Keep report/model metadata readable
+data/**/*.json text eol=lf

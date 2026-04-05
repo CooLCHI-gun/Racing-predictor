@@ -6,7 +6,7 @@ Main entry point for the HKJC Horse Racing Prediction System.
 Usage:
     python run.py                    # Start Flask + scheduler (default)
     python run.py --mode web         # Flask web dashboard only
-    python run.py --mode debug       # One-shot diagnostics for Railway logs
+    python run.py --mode debug       # One-shot diagnostics for scheduled runs
     python run.py --mode cron        # Single-command cron: tick + timed maintenance
     python run.py --mode tick        # One-shot fetch + predict + Telegram send
     python run.py --mode maintenance # Run backtest + optimize + Telegram summary
@@ -426,7 +426,7 @@ def _run_daily_retrain(settled_real_count: int, state: dict) -> dict:
 def run_tick() -> None:
     """
     Run one-shot cron cycle: fetch + predict + pre-race send, then exit.
-    Designed for Railway cron jobs (e.g. every 5 minutes).
+    Designed for external schedulers (e.g. every 5 minutes).
     """
     logger.info("=== Tick Mode ===")
     today = date.today().strftime("%Y-%m-%d")
