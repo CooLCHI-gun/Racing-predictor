@@ -200,72 +200,50 @@ python run.py --mode web --no-scheduler
 3. 確保服務器可連接 HKJC 網站
 4. 使用 PM2 或 systemd 維持後台運行
 
-### Railway 部署（推薦）
+### GitHub Actions 排程（推薦）
 
 本專案的正確入口是 `run.py`，不是 `src.main`。
 
-- Web + 排程（定期 Telegram）啟動指令：`python run.py --mode web`
-- Railway 單一 cron 指令（tick + 定時維護）: `python run.py --mode cron`
-- Railway Cron 每5分鐘輪詢指令：`python run.py --mode tick`
-- 快速診斷指令（分類顯示非賽日/無場次/網絡失敗）：`python run.py --mode debug`
-- 驗證 Telegram 憑據是否正確：`python run.py --mode telegram-test`
+已內建 workflow：`.github/workflows/hkjc-cron.yml`
 
-Railway 設定重點：
+此 workflow 最適合目前架構，原因：
 
-1. 使用 GitHub 連接此 repo，自動部署。
-2. Start Command 使用 `python run.py --mode web`（或使用 Procfile）。
-3. 於 Variables 設定：
+1. 直接使用 `python run.py --mode cron`，不需改動既有排程邏輯。
+2. 每 5 分鐘自動執行一次（HKT 09:00-22:59），同時涵蓋 tick 與 maintenance 視窗。
+3. 內建 cache 保留 `tick_notified.json` 與 `cron_state.json`，避免重複推送。
+4. 支援手動觸發並切換 mode（`cron/tick/maintenance/debug/telegram-test`）。
+
+GitHub Actions 設定步驟：
+
+1. Push 本專案到 GitHub。
+2. 到 repository 的 **Settings → Secrets and variables → Actions**。
+3. 建立 Secrets：
     - `TELEGRAM_TOKEN`
     - `TELEGRAM_CHAT_ID`
+4. 建立 Variables（可選，未設定會用預設值）：
     - `MESSAGE_STYLE=pro`（`pro` 專業 / `casual` 口語）
     - `DEMO_MODE=false`
     - `REAL_DATA_ONLY=true`
     - `ALLOW_SYNTHETIC_TRAINING=false`
     - `FLASK_DEBUG=false`
-    - `TICK_SENT_STATE_FILE=/data/tick_notified.json`（建議配合 Railway Volume）
-    - `CRON_STATE_FILE=/data/cron_state.json`
     - `CRON_MAINTENANCE_HOUR=21`
     - `CRON_MAINTENANCE_MINUTE=50`
     - `CRON_MAINTENANCE_WINDOW_MINS=10`
     - `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=true`
-    - `MAINTENANCE_REPORT_DIR=/data/reports`
     - `DAILY_RETRAIN_ENABLED=true`
-4. 服務需長駐（不可休眠），否則 APScheduler 不會在休眠期間執行。
-5. Scheduler 內建時區為 `Asia/Hong_Kong`，會按 HKT 定時推送。
-
-Railway Cron 建議任務：
-
-【方案A：Railway 只可設一條 command】
-
-1. 每5分鐘執行: `python run.py --mode cron`
-2. 程式每次都會跑 tick
-3. 每日到指定時間視窗（預設 21:50-21:59 HKT）只會跑一次 maintenance
-4. maintenance 只在有新結算賽果時才推 Telegram 摘要
-5. 每日輸出分析報告 JSON（預設 `data/reports/maintenance_YYYY-MM-DD.json`）
-6. 若設定允許，maintenance 會按新增結算場數觸發每日再訓練
+5. 到 **Actions** 頁面啟用 workflow。
 
 預設推送時間（HKT）：
 
 1. 賽前通知：每場開跑前 30 分鐘（`PRE_RACE_NOTIFY_MINS=30`）
-2. 賽後結果處理：20:30（記錄結果與回測）
-3. 每日總結：21:00
-4. maintenance 摘要：21:50 起的視窗內（預設 10 分鐘，只發一次）
+2. maintenance 摘要：21:50 起的視窗內（預設 10 分鐘，只發一次）
 
-若使用 `--mode cron`（單一 command）並每 5 分鐘觸發：
+若你只想手動測試 Telegram，可在 Actions 手動執行並選 `telegram-test`。
 
-1. 每次都會跑 tick（只在賽前視窗內發賽前訊息）
-2. 到 maintenance 視窗才會跑 maintenance，並按設定決定是否推送
+### Railway（可選備用）
 
-【方案B：Railway 可設多條 command】
-
-1. 每5分鐘（賽日）: `python run.py --mode tick`
-2. 每日賽後維護摘要: `python run.py --mode maintenance`
-
-防止 tick 重啟後重複推送：
-
-1. 建立 Railway Volume 並掛載到 `/data`
-2. 設定 `TICK_SENT_STATE_FILE=/data/tick_notified.json`
-3. 這樣重啟/重新部署後仍可保留當日已推送記錄
+若你仍要用 Railway，建議單一 command：`python run.py --mode cron`
+（其行為與 GitHub Actions 的排程模式一致）。
 
 ```bash
 # 使用 gunicorn 生產服務

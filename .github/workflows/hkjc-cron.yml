@@ -1,0 +1,98 @@
+name: HKJC Cron Runner
+
+on:
+  schedule:
+    # Every 5 minutes from 09:00 to 22:59 HKT (UTC+8)
+    - cron: "*/5 1-14 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "run.py mode"
+        required: true
+        default: "cron"
+        type: choice
+        options:
+          - cron
+          - tick
+          - maintenance
+          - debug
+          - telegram-test
+
+concurrency:
+  group: hkjc-cron-runner
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      RUN_MODE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode || 'cron' }}
+      PYTHONUNBUFFERED: "1"
+      TZ: Asia/Hong_Kong
+
+      # Required secrets
+      TELEGRAM_TOKEN: ${{ secrets['TELEGRAM_TOKEN'] }}
+      TELEGRAM_CHAT_ID: ${{ secrets['TELEGRAM_CHAT_ID'] }}
+
+      # Optional configuration (Repository Variables)
+      MESSAGE_STYLE: ${{ vars['MESSAGE_STYLE'] || 'pro' }}
+      DEMO_MODE: ${{ vars['DEMO_MODE'] || 'false' }}
+      REAL_DATA_ONLY: ${{ vars['REAL_DATA_ONLY'] || 'true' }}
+      ALLOW_SYNTHETIC_TRAINING: ${{ vars['ALLOW_SYNTHETIC_TRAINING'] || 'false' }}
+      FLASK_DEBUG: ${{ vars['FLASK_DEBUG'] || 'false' }}
+      CRON_MAINTENANCE_HOUR: ${{ vars['CRON_MAINTENANCE_HOUR'] || '21' }}
+      CRON_MAINTENANCE_MINUTE: ${{ vars['CRON_MAINTENANCE_MINUTE'] || '50' }}
+      CRON_MAINTENANCE_WINDOW_MINS: ${{ vars['CRON_MAINTENANCE_WINDOW_MINS'] || '10' }}
+      MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: ${{ vars['MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED'] || 'true' }}
+      DAILY_RETRAIN_ENABLED: ${{ vars['DAILY_RETRAIN_ENABLED'] || 'true' }}
+
+      # Keep runtime state in repository workspace for cache restore/save
+      TICK_SENT_STATE_FILE: data/predictions/tick_notified.json
+      CRON_STATE_FILE: data/predictions/cron_state.json
+      MAINTENANCE_REPORT_DIR: data/reports
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compute HKT date for cache key
+        id: hkt
+        shell: bash
+        run: |
+          HKT_DATE=$(TZ=Asia/Hong_Kong date +%F)
+          echo "hkt_date=${HKT_DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore runtime cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/predictions
+            data/reports
+          key: runtime-state-${{ github.ref_name }}-${{ steps.hkt.outputs.hkt_date }}-${{ github.run_id }}
+          restore-keys: |
+            runtime-state-${{ github.ref_name }}-${{ steps.hkt.outputs.hkt_date }}-
+            runtime-state-${{ github.ref_name }}-
+
+      - name: Run pipeline
+        run: python run.py --mode "${RUN_MODE}"
+
+      - name: Save runtime cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/predictions
+            data/reports
+          key: runtime-state-${{ github.ref_name }}-${{ steps.hkt.outputs.hkt_date }}-${{ github.run_id }}
