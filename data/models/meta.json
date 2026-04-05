@@ -29,11 +29,16 @@
     "days_since_last_run",
     "implied_win_probability",
     "implied_place_probability",
+    "race_date",
+    "race_start_time",
+    "race_datetime",
     "race_distance",
     "n_runners",
     "venue_is_st"
   ],
   "xgb_available": true,
   "lgb_available": true,
-  "is_trained": true
+  "is_trained": true,
+  "training_source": "real_incremental_forced",
+  "training_generated_at": "2026-04-05T12:39:33.284615"
 }

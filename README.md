@@ -118,6 +118,12 @@ python run.py --mode cron
 # 每日維護（回測 + 優化 + Telegram 摘要）
 python run.py --mode maintenance
 
+# 一次性歷史來源溯源遷移（C/D + 原因）
+python run.py --mode migrate-provenance
+
+# 立即強制發送全場賽前預測到 Telegram
+python run.py --mode send-all-previews-now
+
 # 僅顯示今日預測（命令行）
 python run.py --mode predict
 
@@ -206,6 +212,14 @@ python run.py --mode web --no-scheduler
 
 已內建 workflow：`.github/workflows/hkjc-cron.yml`
 
+資料來源策略（2026-04 更新）：
+
+1. 即時賠率：優先 `https://info.cld.hkjc.com/graphql/base/`（必要時由 Playwright 截取頁面同源 GraphQL 請求）。
+2. 賽後結果：優先 GraphQL，若遇 `WHITELIST_ERROR` 或欄位變更，會自動回退到 `localresults` HTML 解析。
+    - 主要 URL：`https://racing.hkjc.com/zh-hk/local/information/localresults`
+    - 後備 URL：`https://racing.hkjc.com/en-us/local/information/localresults`
+3. 建議保留一次成功 HAR（需包含 `entries` 與 response body）作為 schema 變更時的校驗樣本。
+
 此 workflow 最適合目前架構，原因：
 
 1. 直接使用 `python run.py --mode cron`，不需改動既有排程邏輯。
@@ -222,6 +236,7 @@ GitHub Actions 設定步驟：
     - `TELEGRAM_CHAT_ID`
 4. 建立 Variables（可選，未設定會用預設值）：
     - `MESSAGE_STYLE=pro`（`pro` 專業 / `casual` 口語）
+    - `TELEGRAM_LANGUAGE_GUARD=true`（偵測到英文馬名即阻擋 Telegram 發送）
     - `DEMO_MODE=false`
     - `REAL_DATA_ONLY=true`
     - `ALLOW_SYNTHETIC_TRAINING=false`
@@ -238,7 +253,32 @@ GitHub Actions 設定步驟：
 1. 賽前通知：每場開跑前 30 分鐘（`PRE_RACE_NOTIFY_MINS=30`）
 2. maintenance 摘要：21:50 起的視窗內（預設 10 分鐘，只發一次）
 
+maintenance 輸出（`data/reports/`）：
+
+1. `maintenance_YYYY-MM-DD.json`：當日回測摘要、優化結果、再訓練結果、最近賽日預測 vs 實際對照
+2. `walkforward_YYYY-MM-DD.json`：walk-forward 滾動驗證報告（訓練窗 / 測試窗）
+3. `authenticity_audit_YYYY-MM-DD.json`：每場資料來源溯源與可信等級（A/B/C/D）
+4. `provenance_migration_YYYY-MM-DD.json`：一次性歷史來源回填遷移結果（C/D 分佈與規則）
+
+策略檔（`data/models/`）：
+
+1. `strategy_profile.json`：全局門檻（min_confidence / max_win_odds）
+2. `strategy_profile_segments.json`：分場地/分距離門檻（ST/HV + sprint/mile/middle/long）
+
 若你只想手動測試 Telegram，可在 Actions 手動執行並選 `telegram-test`。
+
+---
+
+## 免責聲明（法律與合規）
+
+1. 本專案為個人研究與技術驗證用途，非香港賽馬會官方產品、服務或合作項目。
+2. 本專案不提供投注建議、投資建議或任何形式的獲利保證，所有輸出僅供研究參考。
+3. 使用者需自行確認並遵守香港賽馬會網站條款、robots 規範、適用法律與平台政策；如有疑義，應先停止使用並諮詢法律專業意見。
+4. 專案內資料可能來自公開頁面或介面，資料正確性、完整性與即時性不作任何明示或默示保證。
+5. 因使用、誤用或依賴本專案輸出所造成之任何損失、責任或爭議，開發者與貢獻者不承擔責任。
+6. 若資料來源方提出限制、下架或停止要求，應立即停用相關抓取、儲存與傳播流程。
+7. 本專案不鼓勵或引導任何非法賭博行為，使用者須自行遵守香港及所在地法例。
+8. 理性投注及負責任博彩：如有需要，請致電賭博輔導熱線 1834 633。
 
 ### Railway（可選備用）
 
@@ -255,19 +295,6 @@ gunicorn -w 2 -b 0.0.0.0:5000 "web.app:create_app()"
 - 設定合理的請求間隔
 - 使用住宅代理或在香港境內部署
 - 遵守 HKJC 網站使用條款
-
----
-
-## 免責聲明
-
-> **本系統僅供學術研究及技術展示用途。所有預測結果不構成任何投注建議。**
->
-> - 本系統與香港賽馬會（HKJC）並無任何關連
-> - 賽馬投注涉及財務風險，請量力而為
-> - 本系統不對任何因使用本系統而產生的損失負責
-> - 香港法例規定，非法賭博屬違法行為
->
-> **Responsible Gambling**: 如有需要，請致電賭博輔導熱線 1834 633
 
 ---
 

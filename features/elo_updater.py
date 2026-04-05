@@ -102,6 +102,11 @@ def run_post_race_elo_update(
             actual_result=result.finishing_order,
             trio_dividend=result.trio_dividend,
             win_dividend=result.win_dividend,
+            is_real_result=True,
+            result_source=str(getattr(result, "result_source", "") or "hkjc_unknown"),
+            result_source_url=str(getattr(result, "result_source_url", "") or ""),
+            result_source_confidence=str(getattr(result, "result_source_confidence", "") or "B"),
+            result_source_note=str(getattr(result, "result_source_note", "") or "elo_updater"),
         )
 
         # Track changes

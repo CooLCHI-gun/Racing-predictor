@@ -40,7 +40,9 @@ class Config:
     # Horse profile: ?horseid=HK_2025_L126&Option=1
     HORSE_PROFILE_URL: str = "https://racing.hkjc.com/en-us/local/information/horse"
     # Results: ?racedate=YYYY/MM/DD&Racecourse=ST&RaceNo=1
-    RESULTS_URL: str = "https://racing.hkjc.com/en-us/local/racing/results"
+    RESULTS_URL: str = "https://racing.hkjc.com/zh-hk/local/information/localresults"
+    # Shared GraphQL endpoint for odds/results APIs
+    HKJC_GRAPHQL_URL: str = "https://info.cld.hkjc.com/graphql/base/"
     # Odds: JS-rendered, need Playwright → bet.hkjc.com/en/racing/wp/{date}/{venue}/{race_no}
     ODDS_WP_URL: str = "https://bet.hkjc.com/en/racing/wp"
     ODDS_TRIO_URL: str = "https://bet.hkjc.com/en/racing/trio"
@@ -52,6 +54,9 @@ class Config:
     TELEGRAM_TOKEN: str = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", ""))
     TELEGRAM_CHAT_ID: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
     MESSAGE_STYLE: str = field(default_factory=lambda: os.getenv("MESSAGE_STYLE", "pro").strip().lower())
+    TELEGRAM_LANGUAGE_GUARD: bool = field(
+        default_factory=lambda: _env_bool("TELEGRAM_LANGUAGE_GUARD", True)
+    )
 
     # ── Model ───────────────────────────────────────────────────────────────
     MODEL_PATH: str = "data/models/"

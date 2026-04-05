@@ -14,16 +14,19 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Tuple
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+HKT = ZoneInfo("Asia/Hong_Kong")
 
 BASE_URL = "https://racing.hkjc.com"
-RACECARD_URL = "https://racing.hkjc.com/en-us/local/information/racecard"
+RACECARD_URL = "https://racing.hkjc.com/zh-hk/local/information/racecard"
+RACECARD_FALLBACK_URL = "https://racing.hkjc.com/en-us/local/information/racecard"
 
 HEADERS = {
     "User-Agent": (
@@ -101,12 +104,57 @@ def _fetch_html(url: str, params: Optional[Dict] = None, max_retries: int = 3) -
             logger.debug(f"Fetching {url} (attempt {attempt}/{max_retries})")
             resp = session.get(url, params=params, timeout=20)
             resp.raise_for_status()
+            resp.encoding = "utf-8"
             return resp.text
         except requests.RequestException as e:
             logger.warning(f"Attempt {attempt} failed for {url}: {e}")
             if attempt < max_retries:
                 time.sleep(2 ** attempt)
     logger.error(f"All {max_retries} attempts failed for {url}")
+    return None
+
+
+def _fetch_racecard_html(params: Optional[Dict] = None, max_retries: int = 3) -> Optional[str]:
+    """Fetch racecard HTML with locale fallback (zh-hk -> en-us)."""
+    html = _fetch_html(RACECARD_URL, params=params, max_retries=max_retries)
+    if html:
+        return html
+    return _fetch_html(RACECARD_FALLBACK_URL, params=params, max_retries=max_retries)
+
+
+def _meeting_exists(race_date: str, venue_code: str) -> bool:
+    """Return True if HKJC has racecard info for the given date/venue race 1."""
+    params = {
+        "racedate": race_date.replace("-", "/"),
+        "Racecourse": venue_code,
+        "RaceNo": "1",
+    }
+    html = _fetch_racecard_html(params=params, max_retries=2)
+    if not html:
+        return False
+    low = html.lower()
+    if "no information" in low or "沒有資料" in html or "暫無資料" in html:
+        return False
+    return ("MY Race Card LIST" in html) or ("我 的 排 位 表" in html) or ("我的排位表" in html)
+
+
+def find_next_meeting_date(start_date: str, max_days: int = 7) -> Optional[Tuple[str, str]]:
+    """
+    Find next available meeting date and venue by probing racecard pages.
+
+    Returns:
+        (YYYY-MM-DD, venue_code) or None when no meeting detected.
+    """
+    try:
+        base = datetime.strptime(start_date, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+    for offset in range(1, max_days + 1):
+        d = (base + timedelta(days=offset)).strftime("%Y-%m-%d")
+        for venue in ("ST", "HV"):
+            if _meeting_exists(d, venue):
+                return d, venue
     return None
 
 
@@ -136,7 +184,7 @@ def _parse_race_header(header_text: str) -> Dict:
     """
     result = {
         "race_name": "",
-        "venue": "Sha Tin",
+        "venue": "沙田",
         "venue_code": "ST",
         "start_time": "12:00",
         "distance": 1200,
@@ -160,11 +208,11 @@ def _parse_race_header(header_text: str) -> Dict:
             result["race_name"] = fb.group(1).strip()[:50]
 
     # Venue
-    if "Happy Valley" in header_text or "HV" in header_text:
-        result["venue"] = "Happy Valley"
+    if "Happy Valley" in header_text or "HV" in header_text or "跑馬地" in header_text:
+        result["venue"] = "跑馬地"
         result["venue_code"] = "HV"
-    elif "Sha Tin" in header_text or "ST" in header_text:
-        result["venue"] = "Sha Tin"
+    elif "Sha Tin" in header_text or "ST" in header_text or "沙田" in header_text:
+        result["venue"] = "沙田"
         result["venue_code"] = "ST"
 
     # Start time — find HH:MM pattern
@@ -178,10 +226,10 @@ def _parse_race_header(header_text: str) -> Dict:
         result["distance"] = int(dist_match.group(1))
 
     # Track type
-    if "All Weather" in header_text or "AWT" in header_text:
-        result["track_type"] = "All Weather Track"
-    elif "Turf" in header_text:
-        result["track_type"] = "Turf"
+    if "All Weather" in header_text or "AWT" in header_text or "全天候" in header_text:
+        result["track_type"] = "全天候跑道"
+    elif "Turf" in header_text or "草地" in header_text:
+        result["track_type"] = "草地"
 
     # Course config e.g. "A+3", "B+2", "C"
     course_match = re.search(r'"([A-C][+\d]*)"', header_text)
@@ -192,12 +240,19 @@ def _parse_race_header(header_text: str) -> Dict:
     class_match = re.search(r"Class (\d)", header_text)
     if class_match:
         result["race_class"] = f"Class {class_match.group(1)}"
+    class_match_ch = re.search(r"第\s*([一二三四五六七八九十\d]+)\s*班", header_text)
+    if class_match_ch:
+        result["race_class"] = f"第{class_match_ch.group(1)}班"
 
     # Rating range e.g. "Rating: 60-40"
     rating_match = re.search(r"Rating[:\s]+(\d+)-(\d+)", header_text)
     if rating_match:
         result["class_rating_upper"] = int(rating_match.group(1))
         result["class_rating_lower"] = int(rating_match.group(2))
+    rating_match_ch = re.search(r"評分[:：]\s*(\d+)-(\d+)", header_text)
+    if rating_match_ch:
+        result["class_rating_upper"] = int(rating_match_ch.group(1))
+        result["class_rating_lower"] = int(rating_match_ch.group(2))
 
     # Prize money
     prize_match = re.search(r"\$([\d,]+)", header_text)
@@ -210,6 +265,19 @@ def _parse_race_header(header_text: str) -> Dict:
     for going_kw in ["GOOD TO YIELDING", "GOOD TO FIRM", "YIELDING", "SOFT", "HEAVY", "FAST", "GOOD"]:
         if going_kw in header_text.upper():
             result["going"] = going_kw
+            break
+
+    going_map_ch = {
+        "好地": "好地",
+        "好黏地": "好黏地",
+        "黏地": "黏地",
+        "軟地": "軟地",
+        "大爛地": "大爛地",
+        "快地": "快地",
+    }
+    for ch_text, mapped in going_map_ch.items():
+        if ch_text in header_text:
+            result["going"] = mapped
             break
 
     return result
@@ -261,8 +329,12 @@ def _parse_horse_row(row: Any) -> Optional[HorseEntry]:
                 name_texts = [t.strip() for t in name_link.stripped_strings]
                 horse_name = name_texts[0] if name_texts else ""
                 horse_name_ch = name_texts[1] if len(name_texts) > 1 else ""
+                if horse_name and any("\u4e00" <= ch <= "\u9fff" for ch in horse_name):
+                    horse_name_ch = horse_name
             else:
                 horse_name = texts[3]
+                if horse_name and any("\u4e00" <= ch <= "\u9fff" for ch in horse_name):
+                    horse_name_ch = horse_name
 
         # Jockey (col 6) + allowance — CONFIRMED live page 2026-04-06
         jockey_raw = texts[6] if len(texts) > 6 else ""
@@ -345,10 +417,29 @@ def _find_main_table(soup: BeautifulSoup):
     Strategy: look for a table containing text 'MY Race Card LIST' in any descendant.
     """
     for table in soup.find_all("table"):
-        if "MY Race Card LIST" in table.get_text():
-            # Inner table contains actual data rows
+        text = table.get_text(" ", strip=True)
+        if (
+            "MY Race Card LIST" in text
+            or "我 的 排 位 表" in text
+            or "我的排位表" in text
+        ):
+            inner = table.find("table", class_=re.compile(r"\bstarter\b"))
+            if inner:
+                return inner
             inner = table.find("table")
             return inner or table
+
+    starter = soup.find("table", class_=re.compile(r"\bstarter\b"))
+    if starter:
+        return starter
+
+    for table in soup.find_all("table"):
+        headers = " ".join(th.get_text(" ", strip=True) for th in table.find_all(["th", "td"])[:30])
+        if (
+            ("馬名" in headers and "騎師" in headers and "練馬師" in headers)
+            or ("Horse" in headers and "Jockey" in headers and "Trainer" in headers)
+        ):
+            return table
     return None
 
 
@@ -359,8 +450,8 @@ def _parse_single_race_page(html: str, race_number: int, race_date: str, going: 
     # ── Extract race header ─────────────────────────────────────────────────
     # The header block is a text region before the main table
     header_text = ""
-    # Look for text containing "Race N -"
-    for el in soup.find_all(string=re.compile(r"Race\s+\d+")):
+    # Look for text containing race title in both EN and ZH formats.
+    for el in soup.find_all(string=re.compile(r"Race\s+\d+|第\s*\d+\s*場")):
         block = el.find_parent()
         if block:
             header_text = block.get_text(" ", strip=True)
@@ -411,24 +502,36 @@ def _parse_single_race_page(html: str, race_number: int, race_date: str, going: 
 def fetch_going(race_date: Optional[str] = None) -> str:
     """
     Fetch going condition from HKJC Wind Tracker page.
-    Returns going string like 'GOOD', 'GOOD TO YIELDING', etc.
-    Falls back to 'GOOD' on failure.
+    Returns Traditional Chinese going text.
+    Falls back to '好地' on failure.
     """
-    url = "https://racing.hkjc.com/en-us/local/info/windtracker"
+    url = "https://racing.hkjc.com/zh-hk/local/info/windtracker"
     html = _fetch_html(url)
     if not html:
-        return "GOOD"
+        return "好地"
     try:
         soup = BeautifulSoup(html, "lxml")
         # Look for going value near 'Going' label
-        going_keywords = ["GOOD TO YIELDING", "GOOD TO FIRM", "YIELDING", "SOFT", "HEAVY", "FAST", "GOOD"]
+        going_keywords_ch = ["好黏地", "好快地", "黏地", "軟地", "大爛地", "快地", "好地"]
+        going_keywords_en = ["GOOD TO YIELDING", "GOOD TO FIRM", "YIELDING", "SOFT", "HEAVY", "FAST", "GOOD"]
         text = soup.get_text()
-        for kw in going_keywords:
-            if kw in text.upper():
+        for kw in going_keywords_ch:
+            if kw in text:
                 return kw
+        for kw in going_keywords_en:
+            if kw in text.upper():
+                return {
+                    "GOOD TO YIELDING": "好黏地",
+                    "GOOD TO FIRM": "好快地",
+                    "YIELDING": "黏地",
+                    "SOFT": "軟地",
+                    "HEAVY": "大爛地",
+                    "FAST": "快地",
+                    "GOOD": "好地",
+                }.get(kw, "好地")
     except Exception as e:
         logger.warning(f"Failed to parse going: {e}")
-    return "GOOD"
+    return "好地"
 
 
 # ── Next race date detection ─────────────────────────────────────────────────
@@ -461,7 +564,11 @@ def fetch_next_race_date() -> Optional[Tuple[str, str]]:
 
 # ── Main public function ─────────────────────────────────────────────────────
 
-def fetch_racecard(race_date: Optional[str] = None, venue_code: Optional[str] = None) -> List[Race]:
+def fetch_racecard(
+    race_date: Optional[str] = None,
+    venue_code: Optional[str] = None,
+    auto_next_if_empty: bool = True,
+) -> List[Race]:
     """
     Fetch the race card from HKJC for a given date.
 
@@ -475,7 +582,7 @@ def fetch_racecard(race_date: Optional[str] = None, venue_code: Optional[str] = 
     from config import config
 
     if race_date is None:
-        race_date = date.today().strftime("%Y-%m-%d")
+        race_date = datetime.now(HKT).strftime("%Y-%m-%d")
 
     if config.DEMO_MODE:
         logger.info("DEMO_MODE enabled — returning mock racecard")
@@ -502,7 +609,7 @@ def fetch_racecard(race_date: Optional[str] = None, venue_code: Optional[str] = 
             "Racecourse": venue_code,
             "RaceNo": str(race_num),
         }
-        html = _fetch_html(RACECARD_URL, params=params)
+        html = _fetch_racecard_html(params=params)
         if not html:
             logger.warning(f"Failed to fetch race {race_num}; stopping")
             break
@@ -528,6 +635,15 @@ def fetch_racecard(race_date: Optional[str] = None, venue_code: Optional[str] = 
         time.sleep(0.5)  # polite delay
 
     if not races:
+        if auto_next_if_empty:
+            next_meeting = find_next_meeting_date(race_date)
+            if next_meeting:
+                next_date, next_venue = next_meeting
+                logger.info(
+                    f"No races on {race_date}; retrying next meeting {next_date} ({next_venue})"
+                )
+                return fetch_racecard(next_date, next_venue, auto_next_if_empty=False)
+
         if config.REAL_DATA_ONLY and not config.DEMO_MODE:
             logger.error("No races fetched from HKJC and REAL_DATA_ONLY=True; returning empty race list")
             return []

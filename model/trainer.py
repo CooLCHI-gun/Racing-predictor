@@ -432,7 +432,17 @@ class EnsembleTrainer:
         for col in missing_cols:
             X[col] = 0.0
 
-        X_model = X[self.feature_cols].copy().fillna(0.0)
+        X_model = X[self.feature_cols].copy()
+        # Defensive coercion: runtime feature frames may include string/datetime fields
+        # (e.g. race_date/race_start_time/race_datetime). Models require numeric dtypes.
+        for col in X_model.columns:
+            if pd.api.types.is_datetime64_any_dtype(X_model[col]):
+                # Convert datetime to unix seconds; NaT -> 0.
+                X_model[col] = (X_model[col].view("int64") // 10**9)
+            else:
+                X_model[col] = pd.to_numeric(X_model[col], errors="coerce")
+
+        X_model = X_model.fillna(0.0)
         return self._ensemble_proba(X_model)
 
     def get_feature_importance(self) -> pd.DataFrame:

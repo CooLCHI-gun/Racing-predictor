@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-04-05T13:34:29.993023+08:00",
+  "mode": "one_time_provenance_migration",
+  "summary": {
+    "total_records": 107,
+    "changed": 107,
+    "assigned_C": 107,
+    "assigned_D": 0,
+    "skipped_with_existing_provenance": 0
+  },
+  "rules": {
+    "C": "is_real_result=true AND settled AND result_recorded_at present",
+    "D": "all other legacy records lacking sufficient source evidence"
+  }
+}

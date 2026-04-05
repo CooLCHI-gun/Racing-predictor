@@ -79,6 +79,10 @@ class RacePredictionRecord:
     # Metadata
     model_confidence: float = 0.0
     is_real_result: bool = False
+    result_source: str = ""
+    result_source_url: str = ""
+    result_source_confidence: str = "D"
+    result_source_note: str = ""
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     result_recorded_at: str = ""
 
@@ -248,6 +252,10 @@ class Backtester:
         place_dividends: Optional[Dict[int, float]] = None,
         win_dividend: Optional[float] = None,
         is_real_result: bool = False,
+        result_source: str = "",
+        result_source_url: str = "",
+        result_source_confidence: str = "D",
+        result_source_note: str = "",
     ) -> Optional[RacePredictionRecord]:
         """
         Record the actual race result and compute financial outcomes.
@@ -275,6 +283,10 @@ class Backtester:
         record.actual_result = actual_result[:10]  # store top-10
         record.actual_winner = actual_result[0] if actual_result else 0
         record.is_real_result = bool(is_real_result)
+        record.result_source = str(result_source or "")
+        record.result_source_url = str(result_source_url or "")
+        record.result_source_confidence = str(result_source_confidence or "D").upper()[:1]
+        record.result_source_note = str(result_source_note or "")
         record.result_recorded_at = datetime.now().isoformat()
 
         race_date_obj = _parse_date_str(record.race_date)
@@ -522,6 +534,149 @@ class Backtester:
                 }
                 for r in recent_records
             ],
+        }
+
+    @staticmethod
+    def _evaluate_threshold_slice(records: List[RacePredictionRecord], min_conf: float, max_odds: float) -> Dict[str, float]:
+        selected = [
+            r for r in records
+            if r.model_confidence >= min_conf and 0 < r.predicted_winner_odds <= max_odds and r.actual_winner > 0
+        ]
+        if not selected:
+            return {"samples": 0, "win_rate": 0.0, "roi": 0.0}
+
+        stake = 10.0
+        wins = sum(1 for r in selected if r.winner_correct)
+        total_invested = len(selected) * stake
+        total_returned = sum(r.win_bet_return for r in selected)
+        roi = ((total_returned - total_invested) / max(total_invested, 1.0)) * 100.0
+        return {
+            "samples": len(selected),
+            "win_rate": wins / len(selected),
+            "roi": roi,
+        }
+
+    @staticmethod
+    def _blend_score(win_rate: float, roi: float, w_win: float = 0.55, w_roi: float = 0.45) -> float:
+        roi_norm = max(0.0, min(1.0, (roi + 30.0) / 60.0))
+        return (w_win * win_rate) + (w_roi * roi_norm)
+
+    def build_walk_forward_report(
+        self,
+        lookback_days: int = 180,
+        train_days: int = 60,
+        test_days: int = 14,
+        step_days: int = 7,
+        real_only: bool = True,
+        min_train_samples: int = 24,
+    ) -> Dict:
+        """
+        Build walk-forward report for threshold strategy robustness.
+
+        For each rolling window:
+        1) choose best thresholds on training window,
+        2) evaluate on following test window.
+        """
+        today = date.today()
+        cutoff = today - timedelta(days=max(1, int(lookback_days)))
+        records = [
+            r for r in self._records.values()
+            if r.actual_winner > 0 and _parse_date_str(r.race_date) >= cutoff and (not real_only or r.is_real_result)
+        ]
+        records.sort(key=lambda r: (_parse_date_str(r.race_date), r.race_number))
+
+        if len(records) < max(min_train_samples, 30):
+            return {
+                "generated_at": datetime.now().isoformat(),
+                "windows": [],
+                "summary": {
+                    "window_count": 0,
+                    "avg_test_win_rate": 0.0,
+                    "avg_test_roi": 0.0,
+                    "total_test_samples": 0,
+                },
+            }
+
+        thresholds_conf = (0.45, 0.50, 0.55, 0.60, 0.65, 0.70)
+        thresholds_odds = (8.0, 12.0, 18.0, 25.0, 40.0)
+
+        windows = []
+        start_day = cutoff
+        last_day = _parse_date_str(records[-1].race_date)
+
+        while start_day + timedelta(days=train_days + test_days) <= last_day:
+            train_end = start_day + timedelta(days=train_days)
+            test_end = train_end + timedelta(days=test_days)
+
+            train = [r for r in records if start_day <= _parse_date_str(r.race_date) < train_end]
+            test = [r for r in records if train_end <= _parse_date_str(r.race_date) < test_end]
+
+            if len(train) < min_train_samples or len(test) < max(8, min_train_samples // 3):
+                start_day = start_day + timedelta(days=step_days)
+                continue
+
+            best = None
+            best_score = -1.0
+            for c in thresholds_conf:
+                for o in thresholds_odds:
+                    train_stats = self._evaluate_threshold_slice(train, c, o)
+                    if train_stats["samples"] < min_train_samples:
+                        continue
+                    score = self._blend_score(train_stats["win_rate"], train_stats["roi"])
+                    if score > best_score:
+                        best_score = score
+                        best = (c, o, train_stats)
+
+            if not best:
+                start_day = start_day + timedelta(days=step_days)
+                continue
+
+            c, o, train_stats = best
+            test_stats = self._evaluate_threshold_slice(test, c, o)
+            windows.append({
+                "train_start": start_day.strftime("%Y-%m-%d"),
+                "train_end": (train_end - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "test_start": train_end.strftime("%Y-%m-%d"),
+                "test_end": (test_end - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "selected": {
+                    "min_confidence": c,
+                    "max_win_odds": o,
+                },
+                "train": {
+                    "samples": int(train_stats["samples"]),
+                    "win_rate": round(train_stats["win_rate"], 4),
+                    "roi": round(train_stats["roi"], 2),
+                },
+                "test": {
+                    "samples": int(test_stats["samples"]),
+                    "win_rate": round(test_stats["win_rate"], 4),
+                    "roi": round(test_stats["roi"], 2),
+                },
+            })
+
+            start_day = start_day + timedelta(days=step_days)
+
+        test_samples = sum(w["test"]["samples"] for w in windows)
+        avg_win_rate = (sum(w["test"]["win_rate"] for w in windows) / len(windows)) if windows else 0.0
+        avg_roi = (sum(w["test"]["roi"] for w in windows) / len(windows)) if windows else 0.0
+
+        return {
+            "generated_at": datetime.now().isoformat(),
+            "config": {
+                "lookback_days": int(lookback_days),
+                "train_days": int(train_days),
+                "test_days": int(test_days),
+                "step_days": int(step_days),
+                "real_only": bool(real_only),
+                "min_train_samples": int(min_train_samples),
+            },
+            "windows": windows,
+            "summary": {
+                "window_count": len(windows),
+                "avg_test_win_rate": round(avg_win_rate, 4),
+                "avg_test_roi": round(avg_roi, 2),
+                "total_test_samples": int(test_samples),
+            },
         }
 
     def save_history(self) -> None:

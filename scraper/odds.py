@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-import requests
+from scraper.graphql_client import execute_graphql
 
 HK_TZ = ZoneInfo("Asia/Hong_Kong")
 
@@ -195,33 +195,12 @@ def calculate_overlay(model_prob: float, implied_prob: float) -> float:
 def _graphql(query: str, variables: Dict, operation_name: str = "racing",
              max_retries: int = 3) -> Optional[Dict]:
     """Execute a GraphQL query against the HKJC API."""
-    payload = {
-        "operationName": operation_name,
-        "query": query,
-        "variables": variables,
-    }
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            resp = session.post(GRAPHQL_URL, json=payload, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            if "errors" in data:
-                # WHITELIST_ERROR is expected for custom queries — use Playwright instead
-                err_codes = [e.get("extensions", {}).get("code", "") for e in data["errors"]]
-                if "WHITELIST_ERROR" in err_codes:
-                    logger.debug("GraphQL whitelist restriction — query must match page's exact format")
-                    return None
-                logger.warning(f"GraphQL errors: {data['errors']}")
-                return None
-            return data.get("data")
-        except Exception as e:
-            logger.warning(f"GraphQL attempt {attempt}/{max_retries}: {e}")
-            if attempt < max_retries:
-                time.sleep(1.5 ** attempt)
-    return None
+    return execute_graphql(
+        query=query,
+        variables=variables,
+        operation_name=operation_name,
+        max_retries=max_retries,
+    )
 
 
 def _parse_odds_from_nodes(odds_nodes: List[Dict]) -> Dict[int, float]:

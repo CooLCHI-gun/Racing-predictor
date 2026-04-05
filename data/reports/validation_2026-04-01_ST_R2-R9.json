@@ -1,0 +1,159 @@
+{
+  "generated_at": "2026-04-05T12:38:34.791007",
+  "race_date": "2026-04-01",
+  "venue": "ST",
+  "range": "R2-R9",
+  "count": 8,
+  "winners": [
+    {
+      "race_number": 2,
+      "winner_horse_num": 8,
+      "finishing_order": [
+        8,
+        10,
+        9,
+        3,
+        12,
+        11,
+        4,
+        13,
+        14,
+        7,
+        6,
+        1,
+        5,
+        2
+      ]
+    },
+    {
+      "race_number": 3,
+      "winner_horse_num": 12,
+      "finishing_order": [
+        12,
+        1,
+        7,
+        10,
+        4,
+        13,
+        9,
+        8,
+        6,
+        11,
+        14,
+        3,
+        2,
+        5
+      ]
+    },
+    {
+      "race_number": 4,
+      "winner_horse_num": 1,
+      "finishing_order": [
+        1,
+        2,
+        3,
+        6,
+        12,
+        11,
+        10,
+        8,
+        4,
+        9,
+        5,
+        7
+      ]
+    },
+    {
+      "race_number": 5,
+      "winner_horse_num": 5,
+      "finishing_order": [
+        5,
+        11,
+        7,
+        13,
+        14,
+        8,
+        2,
+        3,
+        4,
+        12,
+        6,
+        9,
+        10,
+        1
+      ]
+    },
+    {
+      "race_number": 6,
+      "winner_horse_num": 7,
+      "finishing_order": [
+        7,
+        9,
+        1,
+        4,
+        3,
+        8,
+        10,
+        5,
+        2,
+        12,
+        6,
+        11
+      ]
+    },
+    {
+      "race_number": 7,
+      "winner_horse_num": 1,
+      "finishing_order": [
+        1,
+        11,
+        4,
+        5,
+        9,
+        3,
+        6,
+        12,
+        2,
+        10,
+        7,
+        8
+      ]
+    },
+    {
+      "race_number": 8,
+      "winner_horse_num": 4,
+      "finishing_order": [
+        4,
+        5,
+        1,
+        7,
+        2,
+        11,
+        10,
+        6,
+        3,
+        8
+      ]
+    },
+    {
+      "race_number": 9,
+      "winner_horse_num": 4,
+      "finishing_order": [
+        4,
+        2,
+        8,
+        7,
+        10,
+        6,
+        9,
+        3,
+        1,
+        14,
+        12,
+        13,
+        11,
+        5
+      ]
+    }
+  ]
+}

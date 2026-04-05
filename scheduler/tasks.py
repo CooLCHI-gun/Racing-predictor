@@ -510,14 +510,29 @@ class SchedulerManager:
                     import random
                     n = len(race.horses)
                     result = random.sample([h.horse_number for h in race.horses], min(n, 10))
-                    backtester.record_result(race_id, result, is_real_result=False)
+                    backtester.record_result(
+                        race_id,
+                        result,
+                        is_real_result=False,
+                        result_source="demo_simulation",
+                        result_source_confidence="C",
+                        result_source_note="scheduler_demo_mode",
+                    )
                     logger.info(f"Recorded demo result for {race_id}: {result[:3]}")
                 else:
                     actual_result = results_map.get(race.race_number)
                     if not actual_result:
                         logger.warning(f"No real results found for {race_id}; skipping result record")
                         continue
-                    backtester.record_result(race_id, actual_result, is_real_result=True)
+                    backtester.record_result(
+                        race_id,
+                        actual_result,
+                        is_real_result=True,
+                        result_source="hkjc_racecard_results",
+                        result_source_url="https://racing.hkjc.com/zh-hk/local/information/localresults",
+                        result_source_confidence="B",
+                        result_source_note="scheduler_fetch_results_map",
+                    )
                     logger.info(f"Recorded real result for {race_id}: {actual_result[:3]}")
 
             backtester.save_history()

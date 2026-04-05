@@ -16,6 +16,32 @@ from features.builder import MODEL_FEATURE_COLS
 logger = logging.getLogger(__name__)
 
 
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in (text or ""))
+
+
+def _preferred_trad_name(primary: str, secondary: str) -> str:
+    """Prefer Traditional-Chinese display name when available."""
+    p = str(primary or "").strip()
+    s = str(secondary or "").strip()
+    if s and _has_cjk(s):
+        return s
+    if p and _has_cjk(p):
+        return p
+    return s or p
+
+
+def _distance_bucket(distance: int) -> str:
+    d = int(distance or 0)
+    if d <= 1200:
+        return "sprint"
+    if d <= 1600:
+        return "mile"
+    if d <= 2000:
+        return "middle"
+    return "long"
+
+
 @dataclass
 class HorsePrediction:
     """Prediction details for a single horse."""
@@ -107,12 +133,18 @@ class RacePredictor:
         from config import config
         self.min_confidence_for_recommendation = 0.55
         self.max_win_odds_for_recommendation = 18.0
+        self.segment_profiles: Dict[str, Dict] = {}
         if getattr(config, "ENABLE_SELF_OPTIMIZATION", True):
             try:
                 from model.self_optimizer import StrategySelfOptimizer
-                profile = StrategySelfOptimizer(getattr(config, "STRATEGY_PROFILE_PATH", "data/models/strategy_profile.json")).load()
+                optimizer = StrategySelfOptimizer(
+                    getattr(config, "STRATEGY_PROFILE_PATH", "data/models/strategy_profile.json")
+                )
+                profile = optimizer.load()
                 self.min_confidence_for_recommendation = profile.min_confidence
                 self.max_win_odds_for_recommendation = profile.max_win_odds
+                segmented = optimizer.load_segmented()
+                self.segment_profiles = dict(segmented.get("segments", {}) or {})
             except Exception as e:
                 logger.warning("Failed to load adaptive strategy profile: %s", e)
 
@@ -211,10 +243,14 @@ class RacePredictor:
             overlay = calculate_overlay(wp, imp_win)
             ev = calculate_expected_value(wp, win_odds, stake=10.0)
 
+            horse_name = str(row.get("horse_name", f"Horse {i+1}"))
+            horse_name_ch = str(row.get("horse_name_ch", ""))
+            display_name = _preferred_trad_name(horse_name, horse_name_ch)
+
             horses.append(HorsePrediction(
                 horse_number=int(row.get("horse_number", i + 1)),
-                horse_name=str(row.get("horse_name", f"Horse {i+1}")),
-                horse_name_ch=str(row.get("horse_name_ch", "")),
+                horse_name=display_name,
+                horse_name_ch=display_name,
                 jockey=str(row.get("jockey", "")),
                 trainer=str(row.get("trainer", "")),
                 draw=int(row.get("draw", 0)),
@@ -256,14 +292,6 @@ class RacePredictor:
             top5[0] if top5 else None
         )
 
-        # Recommendation policy optimized from real-data backtest history.
-        eligible = [
-            h for h in top5
-            if h.confidence >= self.min_confidence_for_recommendation
-            and h.win_odds <= self.max_win_odds_for_recommendation
-        ]
-        recommended = eligible[0] if eligible else (top5[0] if top5 else None)
-
         # Support both Race dataclass and plain dict
         if hasattr(race_info, 'race_number'):
             ri_race_number = race_info.race_number
@@ -284,6 +312,23 @@ class RacePredictor:
             ri_race_class = str(ri.get("race_class", ""))
             ri_going = str(ri.get("going", ""))
             ri_start_time = str(ri.get("start_time", ""))
+
+        # Recommendation policy optimized from real-data backtest history.
+        min_conf = self.min_confidence_for_recommendation
+        max_odds = self.max_win_odds_for_recommendation
+        seg_key = f"{ri_venue_code}_{_distance_bucket(ri_distance)}" if ri_venue_code else ""
+        seg = self.segment_profiles.get(seg_key)
+        if isinstance(seg, dict):
+            min_conf = float(seg.get("min_confidence", min_conf) or min_conf)
+            max_odds = float(seg.get("max_win_odds", max_odds) or max_odds)
+
+        eligible = [
+            h for h in top5
+            if h.confidence >= min_conf
+            and h.win_odds <= max_odds
+        ]
+        recommended = eligible[0] if eligible else (top5[0] if top5 else None)
+
         return PredictionResult(
             race_number=ri_race_number,
             race_date=ri_race_date,

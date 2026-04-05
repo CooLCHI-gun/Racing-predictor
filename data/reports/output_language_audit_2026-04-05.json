@@ -1,0 +1,285 @@
+{
+  "generated_at": "2026-04-05T13:14:37.403669+08:00",
+  "target_date": "2026-04-05",
+  "meeting_date": "2026-04-06",
+  "race_count": 11,
+  "issues_count": 0,
+  "issues": [],
+  "summary": [
+    {
+      "race_number": 1,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 1,
+          "horse_name": "閃電小子",
+          "jockey": "潘頓",
+          "trainer": "文家良"
+        },
+        {
+          "horse_number": 6,
+          "horse_name": "文明戰士",
+          "jockey": "周俊樂",
+          "trainer": "葉楚航"
+        },
+        {
+          "horse_number": 7,
+          "horse_name": "鸚姿威鵡",
+          "jockey": "巫顯東",
+          "trainer": "蘇偉賢"
+        }
+      ]
+    },
+    {
+      "race_number": 2,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 5,
+          "horse_name": "首駿",
+          "jockey": "布文",
+          "trainer": "游達榮"
+        },
+        {
+          "horse_number": 4,
+          "horse_name": "綫路達飛",
+          "jockey": "潘明輝",
+          "trainer": "羅富全"
+        },
+        {
+          "horse_number": 8,
+          "horse_name": "皇金合",
+          "jockey": "袁幸堯",
+          "trainer": "丁冠豪"
+        }
+      ]
+    },
+    {
+      "race_number": 3,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 10,
+          "horse_name": "趣盈",
+          "jockey": "鍾易禮",
+          "trainer": "葉楚航"
+        },
+        {
+          "horse_number": 6,
+          "horse_name": "家樂寶駒",
+          "jockey": "霍宏聲",
+          "trainer": "游達榮"
+        },
+        {
+          "horse_number": 11,
+          "horse_name": "堅闖",
+          "jockey": "艾兆禮",
+          "trainer": "伍鵬志"
+        }
+      ]
+    },
+    {
+      "race_number": 4,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 2,
+          "horse_name": "幸運奇兵",
+          "jockey": "霍宏聲",
+          "trainer": "廖康銘"
+        },
+        {
+          "horse_number": 3,
+          "horse_name": "機械之星",
+          "jockey": "布文",
+          "trainer": "文家良"
+        },
+        {
+          "horse_number": 1,
+          "horse_name": "威武年代",
+          "jockey": "袁幸堯",
+          "trainer": "呂健威"
+        }
+      ]
+    },
+    {
+      "race_number": 5,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 1,
+          "horse_name": "堅先生",
+          "jockey": "田泰安",
+          "trainer": "桂福特"
+        },
+        {
+          "horse_number": 14,
+          "horse_name": "同喜",
+          "jockey": "巴度",
+          "trainer": "韋達"
+        },
+        {
+          "horse_number": 8,
+          "horse_name": "龍之尊",
+          "jockey": "艾兆禮",
+          "trainer": "游達榮"
+        }
+      ]
+    },
+    {
+      "race_number": 6,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 1,
+          "horse_name": "好評如潮",
+          "jockey": "潘頓",
+          "trainer": "鄭俊偉"
+        },
+        {
+          "horse_number": 4,
+          "horse_name": "會長之寶",
+          "jockey": "袁幸堯",
+          "trainer": "韋達"
+        },
+        {
+          "horse_number": 5,
+          "horse_name": "星運傳奇",
+          "jockey": "何澤堯",
+          "trainer": "方嘉柏"
+        }
+      ]
+    },
+    {
+      "race_number": 7,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 1,
+          "horse_name": "嘉應高昇",
+          "jockey": "潘頓",
+          "trainer": "大衛希斯"
+        },
+        {
+          "horse_number": 2,
+          "horse_name": "驕陽明駒",
+          "jockey": "布文",
+          "trainer": "蔡約翰"
+        },
+        {
+          "horse_number": 3,
+          "horse_name": "精算暴雪",
+          "jockey": "艾道拿",
+          "trainer": "蔡約翰"
+        }
+      ]
+    },
+    {
+      "race_number": 8,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 4,
+          "horse_name": "一世美麗",
+          "jockey": "艾兆禮",
+          "trainer": "蔡約翰"
+        },
+        {
+          "horse_number": 10,
+          "horse_name": "包裝明將",
+          "jockey": "蔡明紹",
+          "trainer": "姚本輝"
+        },
+        {
+          "horse_number": 2,
+          "horse_name": "千帆駒",
+          "jockey": "奧爾民",
+          "trainer": "蘇偉賢"
+        }
+      ]
+    },
+    {
+      "race_number": 9,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 5,
+          "horse_name": "舉步生風",
+          "jockey": "潘頓",
+          "trainer": "葉楚航"
+        },
+        {
+          "horse_number": 3,
+          "horse_name": "金鑽貴人",
+          "jockey": "梁家俊",
+          "trainer": "文家良"
+        },
+        {
+          "horse_number": 14,
+          "horse_name": "桃花開",
+          "jockey": "鍾易禮",
+          "trainer": "告東尼"
+        }
+      ]
+    },
+    {
+      "race_number": 10,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 2,
+          "horse_name": "新意馬",
+          "jockey": "金誠剛",
+          "trainer": "廖康銘"
+        },
+        {
+          "horse_number": 4,
+          "horse_name": "時時歡聲",
+          "jockey": "巴度",
+          "trainer": "告東尼"
+        },
+        {
+          "horse_number": 9,
+          "horse_name": "遙遙領先",
+          "jockey": "希威森",
+          "trainer": "呂健威"
+        }
+      ]
+    },
+    {
+      "race_number": 11,
+      "venue": "沙田",
+      "going": "好地",
+      "top3": [
+        {
+          "horse_number": 3,
+          "horse_name": "奔放",
+          "jockey": "蔡明紹",
+          "trainer": "告東尼"
+        },
+        {
+          "horse_number": 7,
+          "horse_name": "榮駿大道",
+          "jockey": "周俊樂",
+          "trainer": "葉楚航"
+        },
+        {
+          "horse_number": 8,
+          "horse_name": "發財先鋒",
+          "jockey": "梁家俊",
+          "trainer": "羅富全"
+        }
+      ]
+    }
+  ]
+}

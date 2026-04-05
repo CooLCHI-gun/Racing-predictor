@@ -1,0 +1,86 @@
+{
+  "updated_at": "2026-04-05T12:39:23.709412",
+  "min_samples": 12,
+  "segments": {
+    "ST_sprint": {
+      "min_confidence": 0.65,
+      "max_win_odds": 18.0,
+      "selected_samples": 12,
+      "selected_win_rate": 0.75,
+      "selected_roi": 671.67,
+      "selected_score": 0.8625,
+      "optimized_at": "2026-04-05T12:39:23.709412",
+      "mode": "segment_simple"
+    },
+    "ST_mile": {
+      "min_confidence": 0.55,
+      "max_win_odds": 18.0,
+      "selected_samples": 19,
+      "selected_win_rate": 0.4211,
+      "selected_roi": 341.05,
+      "selected_score": 0.6816,
+      "optimized_at": "2026-04-05T12:39:23.709412",
+      "mode": "segment_simple"
+    },
+    "ST_middle": {
+      "min_confidence": 0.5,
+      "max_win_odds": 18.0,
+      "selected_samples": 12,
+      "selected_win_rate": 0.5833,
+      "selected_roi": 485.83,
+      "selected_score": 0.7708,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "segment_simple"
+    },
+    "ST_long": {
+      "min_confidence": 0.55,
+      "max_win_odds": 18.0,
+      "selected_samples": 1,
+      "selected_win_rate": 0.0,
+      "selected_roi": 0.0,
+      "selected_score": 0.0,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "fallback_global"
+    },
+    "HV_sprint": {
+      "min_confidence": 0.55,
+      "max_win_odds": 12.0,
+      "selected_samples": 15,
+      "selected_win_rate": 0.5333,
+      "selected_roi": 368.0,
+      "selected_score": 0.7433,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "segment_simple"
+    },
+    "HV_mile": {
+      "min_confidence": 0.55,
+      "max_win_odds": 18.0,
+      "selected_samples": 0,
+      "selected_win_rate": 0.0,
+      "selected_roi": 0.0,
+      "selected_score": 0.0,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "fallback_global"
+    },
+    "HV_middle": {
+      "min_confidence": 0.45,
+      "max_win_odds": 12.0,
+      "selected_samples": 15,
+      "selected_win_rate": 0.2,
+      "selected_roi": 64.0,
+      "selected_score": 0.56,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "segment_simple"
+    },
+    "HV_long": {
+      "min_confidence": 0.55,
+      "max_win_odds": 18.0,
+      "selected_samples": 2,
+      "selected_win_rate": 0.0,
+      "selected_roi": 0.0,
+      "selected_score": 0.0,
+      "optimized_at": "2026-04-05T12:39:23.710412",
+      "mode": "fallback_global"
+    }
+  }
+}

@@ -6,6 +6,7 @@ All messages are in Traditional Chinese with emoji formatting.
 """
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -32,6 +33,8 @@ class TelegramNotifier:
         self.token = token or config.TELEGRAM_TOKEN
         self.chat_id = chat_id or config.TELEGRAM_CHAT_ID
         self.message_style = (config.MESSAGE_STYLE or "pro").strip().lower()
+        self.language_guard_enabled = bool(getattr(config, "TELEGRAM_LANGUAGE_GUARD", True))
+        self._batch_blocked = False
         if self.message_style not in {"casual", "pro"}:
             self.message_style = "pro"
         self._bot: Any = None
@@ -67,6 +70,15 @@ class TelegramNotifier:
         Returns:
             True if sent successfully, False otherwise
         """
+        if self.language_guard_enabled and self._batch_blocked:
+            logger.error("[TELEGRAM BLOCKED] 語言守門已觸發，整批訊息停止發送")
+            return False
+
+        if self.language_guard_enabled and self._contains_english_horse_name(text):
+            self._batch_blocked = True
+            logger.error("[TELEGRAM BLOCKED] 語言守門啟用：偵測到英文馬名，已阻擋發送")
+            return False
+
         if not self.is_configured():
             logger.info(f"[TELEGRAM MOCK] Would send:\n{text}")
             return False
@@ -87,6 +99,14 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"Failed to send Telegram message: {e}")
             return False
+
+    def _contains_english_horse_name(self, text: str) -> bool:
+        """Detect likely English horse names in outgoing message text."""
+        patterns = [
+            r"\[[^\]]*[A-Za-z][^\]]*\]",  # e.g. [GOLDEN ARROW]
+            r"#\d+\s+[A-Za-z][A-Za-z0-9' .\-]{1,}",  # e.g. #5 GOLDEN ARROW
+        ]
+        return any(re.search(p, text) for p in patterns)
 
     def _run_async_sync(self, coro) -> bool:
         """Run async coroutine from sync context safely."""

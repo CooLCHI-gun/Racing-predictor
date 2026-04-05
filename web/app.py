@@ -8,6 +8,7 @@ import os
 import sys
 from datetime import date, datetime
 from typing import Dict
+from zoneinfo import ZoneInfo
 
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,6 +17,7 @@ from flask import Flask, jsonify, redirect, render_template, request, url_for
 from flask_cors import CORS
 
 logger = logging.getLogger(__name__)
+HKT = ZoneInfo("Asia/Hong_Kong")
 
 # ── App factory ────────────────────────────────────────────────────────────────
 
@@ -45,7 +47,14 @@ def create_app() -> Flask:
         races = state.races
         predictions = state.predictions
         weather = state.weather
-        today = date.today().strftime("%Y年%m月%d日")
+        if races:
+            try:
+                race_day = datetime.strptime(races[0].race_date, "%Y-%m-%d")
+                today = race_day.strftime("%Y年%m月%d日")
+            except Exception:
+                today = datetime.now(HKT).strftime("%Y年%m月%d日")
+        else:
+            today = datetime.now(HKT).strftime("%Y年%m月%d日")
         venue = races[0].venue if races else "沙田"
 
         # Build race cards for template
@@ -244,7 +253,7 @@ def create_app() -> Flask:
                 "start_time": race.start_time,
                 "n_horses": len(race.horses),
             })
-        return jsonify({"races": races_data, "date": date.today().isoformat()})
+        return jsonify({"races": races_data, "date": datetime.now(HKT).date().isoformat()})
 
     @app.route("/api/status")
     def api_status():
@@ -348,7 +357,7 @@ class _AppState:
         from scraper.odds import fetch_odds, mock_odds
         from scraper.weather import fetch_weather
 
-        today = date.today().strftime("%Y-%m-%d")
+        today = datetime.now(HKT).strftime("%Y-%m-%d")
         self.races = fetch_racecard(today)
         if config.REAL_DATA_ONLY and not config.DEMO_MODE and not self.races:
             raise RuntimeError("No real races available while REAL_DATA_ONLY=True")
@@ -380,9 +389,13 @@ class _AppState:
         self.trainer = EnsembleTrainer()
         if not self.trainer.load():
             if config.REAL_DATA_ONLY and not config.ALLOW_SYNTHETIC_TRAINING:
-                raise RuntimeError(
-                    "Model not found and synthetic training is disabled (REAL_DATA_ONLY=True)."
+                logger.warning(
+                    "Model not available in strict REAL_DATA_ONLY mode; "
+                    "web will show race data without predictions"
                 )
+                self.predictor = None
+                self.backtester = Backtester()
+                return
             logger.info("Training model on synthetic data...")
             self.trainer.train()
             self.trainer.save()
