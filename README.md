@@ -228,7 +228,7 @@ python run.py --mode web --no-scheduler
 1. 直接使用 `python run.py --mode cron`，不需改動既有排程邏輯。
 2. 每 5 分鐘自動執行一次（HKT 09:00-22:59），同時涵蓋 tick 與 maintenance 視窗。
 3. 內建 cache 保留 `tick_notified.json` 與 `cron_state.json`，避免重複推送。
-4. 支援手動觸發並切換 mode（`cron/tick/maintenance/debug/telegram-test`）。
+4. 支援手動觸發並切換 mode（`cron/tick/maintenance/backtest/optimize/debug/telegram-test`）。
 
 GitHub Actions 設定步驟：
 
@@ -247,7 +247,7 @@ GitHub Actions 設定步驟：
     - `CRON_MAINTENANCE_HOUR=21`
     - `CRON_MAINTENANCE_MINUTE=50`
     - `CRON_MAINTENANCE_WINDOW_MINS=10`
-    - `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=true`
+    - `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`（建議；確保每日 maintenance 摘要固定推送）
     - `DAILY_RETRAIN_ENABLED=true`
     - `TELEGRAM_ALERT_ON_FAILURE=true`（cron/maintenance 致命錯誤即時告警）
     - `TELEGRAM_ALERT_COOLDOWN_MINS=30`（同一錯誤告警冷卻時間，分鐘）
@@ -257,10 +257,34 @@ GitHub Actions 設定步驟：
     - `TRAINING_RETENTION_MANIFEST_FILE=data/training_retention_manifest.json`
 5. 到 **Actions** 頁面啟用 workflow。
 
+### 一次部署，之後全自動（建議配置）
+
+目標：只需部署一次，之後由 GitHub Actions 自動按時執行 `tick + maintenance + 報告推送`。
+
+1. Secrets 最少要有：`TELEGRAM_TOKEN` 與 `TELEGRAM_CHAT_ID`（若你目前只用舊名 `TELEGRAM_BOT_TOKEN`，請同值再新增一個 `TELEGRAM_TOKEN`）。
+2. Variables 建議設定：`MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`（確保每日 maintenance 摘要固定推送，不會因為無新結算賽果而跳過）。
+3. 已內建每日 heartbeat（預設 12:00 HKT）；如要改時間，可直接修改 workflow 內 `HEARTBEAT_*` env。
+4. Push 後 workflow 會在 HKT 09:00-22:59 每 5 分鐘自動執行 `cron`。
+5. `cron` 會自動執行賽前推送（tick）、每日 heartbeat（固定時段一次）以及 maintenance（視窗內一次）。
+6. 你只需要看 Telegram 與 Actions log，不需每天手動執行 command。
+
+GitHub Actions 手動模式說明：
+
+1. `maintenance`：發送每日維護摘要（受 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED` 影響）。
+2. `backtest`：執行回測並發送「回測模式摘要」到 Telegram。
+3. `optimize`：執行優化並發送「優化模式摘要」到 Telegram（若無已結算真實賽果，也會發送未執行原因）。
+
+GitHub Actions 常見陷阱（收不到 Telegram）：
+
+1. Secret 名稱必須是 `TELEGRAM_TOKEN` 與 `TELEGRAM_CHAT_ID`。
+2. Workflow 讀取的是 `TELEGRAM_TOKEN`；若你仍使用舊名 `TELEGRAM_BOT_TOKEN`，請同步建立 `TELEGRAM_TOKEN`（值相同）。
+3. `maintenance` 在無新結算賽果時可能會跳過通知（可把 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED` 設為 `false` 以強制每日發送）。
+
 預設推送時間（HKT）：
 
 1. 賽前通知：每場開跑前 30 分鐘（`PRE_RACE_NOTIFY_MINS=30`）
 2. maintenance 摘要：21:50 起的視窗內（預設 10 分鐘，只發一次）
+3. heartbeat 健康檢查：12:00 起的視窗內（預設 10 分鐘，只發一次）
 
 maintenance 輸出（`data/reports/`）：
 

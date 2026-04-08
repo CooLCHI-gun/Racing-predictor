@@ -42,7 +42,7 @@ class TelegramNotifier:
         if not self.token or not self.chat_id:
             logger.warning(
                 "Telegram token or chat_id not configured. "
-                "Set TELEGRAM_TOKEN and TELEGRAM_CHAT_ID environment variables."
+                "Set TELEGRAM_TOKEN (or TELEGRAM_BOT_TOKEN) and TELEGRAM_CHAT_ID environment variables."
             )
 
     def _get_bot(self) -> Any:

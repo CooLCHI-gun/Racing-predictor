@@ -51,7 +51,9 @@ class Config:
     HKO_WEATHER_URL: str = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php"
 
     # ── Telegram ────────────────────────────────────────────────────────────
-    TELEGRAM_TOKEN: str = field(default_factory=lambda: os.getenv("TELEGRAM_TOKEN", ""))
+    TELEGRAM_TOKEN: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_TOKEN", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+    )
     TELEGRAM_CHAT_ID: str = field(default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", ""))
     MESSAGE_STYLE: str = field(default_factory=lambda: os.getenv("MESSAGE_STYLE", "pro").strip().lower())
     TELEGRAM_LANGUAGE_GUARD: bool = field(
@@ -120,6 +122,14 @@ class Config:
     CRON_MAINTENANCE_MINUTE: int = field(default_factory=lambda: _env_int("CRON_MAINTENANCE_MINUTE", 50))
     CRON_MAINTENANCE_WINDOW_MINS: int = field(
         default_factory=lambda: _env_int("CRON_MAINTENANCE_WINDOW_MINS", 10)
+    )
+    HEARTBEAT_ENABLED: bool = field(
+        default_factory=lambda: _env_bool("HEARTBEAT_ENABLED", True)
+    )
+    HEARTBEAT_HOUR: int = field(default_factory=lambda: _env_int("HEARTBEAT_HOUR", 12))
+    HEARTBEAT_MINUTE: int = field(default_factory=lambda: _env_int("HEARTBEAT_MINUTE", 0))
+    HEARTBEAT_WINDOW_MINS: int = field(
+        default_factory=lambda: _env_int("HEARTBEAT_WINDOW_MINS", 10)
     )
     MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: bool = field(
         default_factory=lambda: _env_bool("MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED", True)

@@ -15,6 +15,8 @@ on:
           - cron
           - tick
           - maintenance
+          - backtest
+          - optimize
           - debug
           - telegram-test
 
@@ -42,10 +44,15 @@ jobs:
       REAL_DATA_ONLY: ${{ vars['REAL_DATA_ONLY'] || 'true' }}
       ALLOW_SYNTHETIC_TRAINING: ${{ vars['ALLOW_SYNTHETIC_TRAINING'] || 'false' }}
       FLASK_DEBUG: ${{ vars['FLASK_DEBUG'] || 'false' }}
+      TELEGRAM_LANGUAGE_GUARD: ${{ vars['TELEGRAM_LANGUAGE_GUARD'] || 'true' }}
       CRON_MAINTENANCE_HOUR: ${{ vars['CRON_MAINTENANCE_HOUR'] || '21' }}
       CRON_MAINTENANCE_MINUTE: ${{ vars['CRON_MAINTENANCE_MINUTE'] || '50' }}
       CRON_MAINTENANCE_WINDOW_MINS: ${{ vars['CRON_MAINTENANCE_WINDOW_MINS'] || '10' }}
-      MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: ${{ vars['MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED'] || 'true' }}
+      HEARTBEAT_ENABLED: "true"
+      HEARTBEAT_HOUR: "12"
+      HEARTBEAT_MINUTE: "0"
+      HEARTBEAT_WINDOW_MINS: "10"
+      MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: ${{ vars['MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED'] || 'false' }}
       DAILY_RETRAIN_ENABLED: ${{ vars['DAILY_RETRAIN_ENABLED'] || 'true' }}
 
       # Keep runtime state in repository workspace for cache restore/save

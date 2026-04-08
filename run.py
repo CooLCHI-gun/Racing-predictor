@@ -687,6 +687,67 @@ def _should_run_maintenance_now(now_hkt: datetime) -> bool:
     return target_minutes <= current_minutes < (target_minutes + window)
 
 
+def _should_send_heartbeat_now(now_hkt: datetime) -> bool:
+    """Return True when current time falls into the configured daily heartbeat window."""
+    if not bool(getattr(config, "HEARTBEAT_ENABLED", True)):
+        return False
+    target_minutes = int(config.HEARTBEAT_HOUR) * 60 + int(config.HEARTBEAT_MINUTE)
+    current_minutes = now_hkt.hour * 60 + now_hkt.minute
+    window = max(1, int(getattr(config, "HEARTBEAT_WINDOW_MINS", 10) or 10))
+    return target_minutes <= current_minutes < (target_minutes + window)
+
+
+def _send_cron_heartbeat(now_hkt: datetime, state: dict) -> bool:
+    """Send one daily heartbeat message in the configured window."""
+    from notifier.telegram import TelegramNotifier
+
+    today = now_hkt.strftime("%Y-%m-%d")
+    heartbeat_map = state.get("heartbeat_sent", {})
+    if not isinstance(heartbeat_map, dict):
+        heartbeat_map = {}
+
+    if heartbeat_map.get(today):
+        return False
+
+    notifier = TelegramNotifier()
+    if not notifier.is_configured():
+        logger.warning("Telegram not configured; heartbeat not sent")
+        return False
+
+    is_pro_style = (config.MESSAGE_STYLE or "pro").strip().lower() != "casual"
+    maintenance_map = state.get("maintenance_sent", {}) if isinstance(state.get("maintenance_sent", {}), dict) else {}
+    maintenance_done = bool(maintenance_map.get(today))
+    last_maintenance = str(state.get("maintenance_last_run_at", "") or "N/A")
+
+    lines = [
+        f"{'💓 <b>排程健康檢查</b>' if is_pro_style else '💓 <b>系統心跳</b>'}",
+        f"時間: {now_hkt.strftime('%Y-%m-%d %H:%M:%S')} HKT",
+        "",
+        f"• cron mode: 正常執行中",
+        f"• 今日 maintenance: {'已完成' if maintenance_done else '未完成/未到時段'}",
+        f"• 最近 maintenance 時間: {last_maintenance}",
+        f"• heartbeat 時段: {int(config.HEARTBEAT_HOUR):02d}:{int(config.HEARTBEAT_MINUTE):02d} "
+        f"(+{max(1, int(getattr(config, 'HEARTBEAT_WINDOW_MINS', 10) or 10))}m)",
+    ]
+    lines.extend([
+        "",
+        f"<i>{'⚠️ 僅供研究參考，不構成投注建議' if is_pro_style else '⚠️ 只供研究參考，唔係投注建議'}</i>",
+    ])
+
+    ok = notifier.send_sync("\n".join(lines))
+    if not ok:
+        return False
+
+    heartbeat_map[today] = now_hkt.isoformat()
+    keys = sorted(heartbeat_map.keys())
+    if len(keys) > 14:
+        for k in keys[:-14]:
+            heartbeat_map.pop(k, None)
+    state["heartbeat_sent"] = heartbeat_map
+    logger.info("Cron heartbeat sent")
+    return True
+
+
 def _latest_settled_marker(records: list) -> str:
     """Build a stable marker for the latest settled real-result record."""
     if not records:
@@ -1309,15 +1370,20 @@ def run_cron() -> None:
     logger.info("=== Cron Mode ===")
     now_hkt = datetime.now(HKT)
     today = now_hkt.strftime("%Y-%m-%d")
+    state_path = config.CRON_STATE_FILE
 
     run_tick()
+
+    state = _load_json_state(state_path)
+    if _should_send_heartbeat_now(now_hkt):
+        heartbeat_sent = _send_cron_heartbeat(now_hkt, state)
+        if heartbeat_sent:
+            _save_json_state(state_path, state)
 
     if not _should_run_maintenance_now(now_hkt):
         logger.info("Outside maintenance window; cron exits after tick")
         return
 
-    state_path = config.CRON_STATE_FILE
-    state = _load_json_state(state_path)
     maint_map = state.get("maintenance_sent", {})
     if not isinstance(maint_map, dict):
         maint_map = {}
@@ -1327,6 +1393,12 @@ def run_cron() -> None:
         return
 
     run_maintenance()
+
+    # Reload latest state written by maintenance to avoid overwriting fields.
+    state = _load_json_state(state_path)
+    maint_map = state.get("maintenance_sent", {})
+    if not isinstance(maint_map, dict):
+        maint_map = {}
     maint_map[today] = True
 
     # Keep state compact to recent 14 days.
@@ -1348,6 +1420,39 @@ def run_retention_cleanup() -> None:
     print(f"- scanned_files: {summary.get('scanned_files', 0)}")
     print(f"- deleted_files: {summary.get('deleted_files', 0)}")
     print(f"- errors: {len(summary.get('errors', []))}\n")
+
+
+def _send_mode_report_to_telegram(mode: str, title: str, body_lines: List[str]) -> bool:
+    """Best-effort helper to send mode summary to Telegram."""
+    from notifier.telegram import TelegramNotifier
+
+    notifier = TelegramNotifier()
+    if not notifier.is_configured():
+        logger.warning("Telegram not configured; %s summary not sent", mode)
+        return False
+
+    is_pro_style = (config.MESSAGE_STYLE or "pro").strip().lower() != "casual"
+    footer = (
+        "⚠️ 僅供研究參考，不構成投注建議"
+        if is_pro_style
+        else "⚠️ 只供研究參考，唔係投注建議"
+    )
+    now_hkt_str = datetime.now(HKT).strftime("%Y-%m-%d %H:%M:%S")
+    message = "\n".join([
+        f"<b>{title}</b>",
+        f"時間: {now_hkt_str} HKT",
+        "",
+        *body_lines,
+        "",
+        f"<i>{footer}</i>",
+    ])
+
+    ok = notifier.send_sync(message)
+    if ok:
+        logger.info("%s summary sent to Telegram", mode)
+    else:
+        logger.warning("Failed to send %s summary to Telegram", mode)
+    return ok
 
 
 def run_backtest() -> None:
@@ -1386,6 +1491,22 @@ def run_backtest() -> None:
     print(f"    真實ROI:   {real_r30.win_roi:+.1f}%")
     print("="*60 + "\n")
 
+    _send_mode_report_to_telegram(
+        mode="backtest",
+        title="📊 回測模式摘要",
+        body_lines=[
+            f"• 總預測場數: {stats['total_predictions']}",
+            f"• 首選準確率: {stats['winner_accuracy']:.1%}",
+            f"• 頭三到位率: {stats['top3_hit_rate']:.1%}",
+            f"• 三T命中率: {stats['trio_hit_rate']:.1%}",
+            f"• 近7日 ROI: {r7.win_roi:+.1f}% ({r7.total_races}場)",
+            f"• 近30日 勝出注 ROI: {r30.win_roi:+.1f}% ({r30.total_races}場)",
+            f"• 近30日 三T ROI: {r30_trio.trio_roi:+.1f}%",
+            f"• 近30日 淨利潤: ${r30.net_profit:+.0f}",
+            f"• 近30日 真實 ROI: {real_r30.win_roi:+.1f}% ({real_r30.total_races}場)",
+        ],
+    )
+
 
 def run_optimize() -> None:
     """Run real-data backtest and optimize adaptive recommendation thresholds."""
@@ -1398,6 +1519,14 @@ def run_optimize() -> None:
     settled_real = bt.get_settled_records(real_only=True)
     if not settled_real:
         print("\n目前沒有已結算的真實賽果，無法進行自我優化。\n")
+        _send_mode_report_to_telegram(
+            mode="optimize",
+            title="🧠 優化模式摘要",
+            body_lines=[
+                "• 狀態: 未執行",
+                "• 原因: 目前沒有已結算真實賽果",
+            ],
+        )
         return
 
     lookback_days = max(30, int(config.OPTIMIZATION_LOOKBACK_DAYS))
@@ -1420,6 +1549,20 @@ def run_optimize() -> None:
     print(f"  優化樣本 ROI:          {profile.selected_roi:+.2f}%")
     print(f"  策略檔案:              {config.STRATEGY_PROFILE_PATH}")
     print("="*70 + "\n")
+
+    _send_mode_report_to_telegram(
+        mode="optimize",
+        title="🧠 優化模式摘要",
+        body_lines=[
+            f"• 近30日真實 ROI: {real_30.win_roi:+.2f}% ({real_30.total_races}場)",
+            f"• 最小信心值: {profile.min_confidence:.2f}",
+            f"• 最大勝出賠率: {profile.max_win_odds:.1f}",
+            f"• 優化樣本數: {profile.selected_samples}",
+            f"• 優化樣本勝率: {profile.selected_win_rate:.1%}",
+            f"• 優化樣本 ROI: {profile.selected_roi:+.2f}%",
+            f"• 策略檔案: {config.STRATEGY_PROFILE_PATH}",
+        ],
+    )
 
 
 def run_fetch() -> None:
