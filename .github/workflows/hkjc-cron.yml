@@ -1,6 +1,12 @@
 name: HKJC Cron Runner
 
 on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
   schedule:
     # Every 5 minutes from 09:00 to 22:59 HKT (UTC+8)
     - cron: "*/5 1-14 * * *"
@@ -25,7 +31,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  regression-tests:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run regression tests
+        run: |
+          python -m pytest \
+            tests/test_race_preview_message.py \
+            tests/test_maintenance_telegram.py \
+            tests/test_backtest_integrity.py
+
   run:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -52,6 +84,7 @@ jobs:
       HEARTBEAT_HOUR: "12"
       HEARTBEAT_MINUTE: "0"
       HEARTBEAT_WINDOW_MINS: "10"
+      # Default false: keep daily maintenance summary on a fixed daily push cadence.
       MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: ${{ vars['MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED'] || 'false' }}
       DAILY_RETRAIN_ENABLED: ${{ vars['DAILY_RETRAIN_ENABLED'] || 'true' }}
 

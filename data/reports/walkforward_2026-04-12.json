@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-04-12T21:47:15.647065",
+  "config": {
+    "lookback_days": 120,
+    "train_days": 60,
+    "test_days": 14,
+    "step_days": 7,
+    "real_only": true,
+    "min_train_samples": 24
+  },
+  "windows": [
+    {
+      "train_start": "2026-01-10",
+      "train_end": "2026-03-10",
+      "test_start": "2026-03-11",
+      "test_end": "2026-03-24",
+      "selected": {
+        "min_confidence": 0.55,
+        "max_win_odds": 18.0
+      },
+      "train": {
+        "samples": 27,
+        "win_rate": 0.5556,
+        "roi": 417.04
+      },
+      "test": {
+        "samples": 28,
+        "win_rate": 0.4286,
+        "roi": 296.07
+      }
+    },
+    {
+      "train_start": "2026-01-17",
+      "train_end": "2026-03-17",
+      "test_start": "2026-03-18",
+      "test_end": "2026-03-31",
+      "selected": {
+        "min_confidence": 0.6,
+        "max_win_odds": 18.0
+      },
+      "train": {
+        "samples": 27,
+        "win_rate": 0.7778,
+        "roi": 616.67
+      },
+      "test": {
+        "samples": 17,
+        "win_rate": 0.7059,
+        "roi": 635.29
+      }
+    }
+  ],
+  "summary": {
+    "window_count": 2,
+    "avg_test_win_rate": 0.5673,
+    "avg_test_roi": 465.68,
+    "total_test_samples": 45
+  }
+}

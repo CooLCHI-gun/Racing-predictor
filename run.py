@@ -30,6 +30,7 @@ Usage:
 import argparse
 import glob
 import hashlib
+import html
 import json
 import logging
 import os
@@ -769,6 +770,43 @@ def _latest_settled_marker(records: list) -> str:
     )
 
 
+def _build_combo_recommendations(day_records: List[Dict]) -> Dict[str, object]:
+    """Build Trio and Quinella suggestions from the strongest recent settled record."""
+    if not day_records:
+        return {}
+
+    anchor = max(
+        day_records,
+        key=lambda item: (
+            float(item.get("model_confidence", 0.0) or 0.0),
+            -float(item.get("predicted_winner_odds", 0.0) or 0.0),
+            -int(item.get("race_number", 0) or 0),
+        ),
+    )
+    top3 = [int(x) for x in list(anchor.get("predicted_top3", []) or [])[:3] if int(x) > 0]
+    if len(top3) < 2:
+        return {}
+
+    trio_primary = tuple(top3[:3]) if len(top3) >= 3 else tuple()
+    quinella_primary = tuple(top3[:2])
+    quinella_backup = tuple((top3[0], top3[2])) if len(top3) >= 3 else tuple()
+    return {
+        "race_id": str(anchor.get("race_id", "") or ""),
+        "confidence": float(anchor.get("model_confidence", 0.0) or 0.0),
+        "winner_odds": float(anchor.get("predicted_winner_odds", 0.0) or 0.0),
+        "trio_primary": trio_primary,
+        "quinella_primary": quinella_primary,
+        "quinella_backup": quinella_backup,
+    }
+
+
+def _format_combo(combo: tuple[int, ...]) -> str:
+    """Render horse-number combinations for Telegram text."""
+    if not combo:
+        return "N/A"
+    return " / ".join(f"#{number}" for number in combo)
+
+
 def _write_maintenance_report(report: dict) -> str:
     """Persist maintenance analysis report and return file path."""
     report_dir = config.MAINTENANCE_REPORT_DIR
@@ -1262,7 +1300,7 @@ def run_maintenance() -> None:
         lines.extend([
             "",
             f"{'<b>🆚 預測與結果對照（最近一場）</b>' if is_pro_style else '<b>🆚 最近一場對比</b>'}",
-            f"• 場次: {latest_compare['race_id']}",
+            f"• 場次: {html.escape(str(latest_compare['race_id']))}",
             f"• 🤖 預測頭三: {pred_top3}",
             f"• 🏁 實際頭三: {actual_top3}",
             f"• ✅ 命中數: {latest_compare['top3_hit']}/3",
@@ -1304,7 +1342,7 @@ def run_maintenance() -> None:
         "",
         f"{'<b>🔁 再訓練摘要</b>' if is_pro_style else '<b>🔁 今日再訓練</b>'}",
         f"• 是否執行: {'是' if retrain_info.get('ran') else '否'}",
-        f"• 原因: {retrain_info.get('reason', '')}",
+        f"• 原因: {html.escape(str(retrain_info.get('reason', '') or ''))}",
         f"• 新增已結算場數: {retrain_info.get('new_settled_since_last', 0)}",
     ])
 
@@ -1312,12 +1350,14 @@ def run_maintenance() -> None:
     if gate:
         tier_counts = gate.get("counts_by_tier", {})
         lines.extend([
-            f"• 可訓練等級: {','.join(gate.get('allowed_tiers', [])) or 'N/A'}",
+            f"• 可訓練等級: {html.escape(','.join(gate.get('allowed_tiers', [])) or 'N/A')}",
             f"• 高品質樣本: {gate.get('eligible_records', 0)}",
             f"• A/B/C/D: {tier_counts.get('A', 0)}/{tier_counts.get('B', 0)}/{tier_counts.get('C', 0)}/{tier_counts.get('D', 0)}",
         ])
         if gate.get("blocking_reasons"):
-            lines.append(f"• 阻擋原因: {'; '.join(gate.get('blocking_reasons', [])[:2])}")
+            lines.append(
+                f"• 阻擋原因: {html.escape('; '.join(gate.get('blocking_reasons', [])[:2]))}"
+            )
 
     if bool(getattr(config, "ENABLE_DAILY_ALERT_NOISE_SUMMARY", True)):
         lines.extend([
@@ -1328,7 +1368,9 @@ def run_maintenance() -> None:
         ])
         for row in list(alert_noise_summary.get("top_noisy", []) or [])[:3]:
             lines.append(
-                f"• {row.get('fingerprint', '')} [{row.get('mode', '')}] {row.get('error_type', '')}: "
+                f"• {html.escape(str(row.get('fingerprint', '') or ''))} "
+                f"[{html.escape(str(row.get('mode', '') or ''))}] "
+                f"{html.escape(str(row.get('error_type', '') or ''))}: "
                 f"{row.get('suppressed_count', 0)} 次"
             )
 
@@ -1342,9 +1384,9 @@ def run_maintenance() -> None:
 
     lines.extend([
         "",
-        f"{'<b>🗂️ 分析報告</b>' if is_pro_style else '<b>🗂️ 今日報告</b>'}\n• {report_path_display}",
-        f"• walk-forward: {walk_forward_path_display}",
-        f"• authenticity-audit: {audit_path_display}",
+        f"{'<b>🗂️ 分析報告</b>' if is_pro_style else '<b>🗂️ 今日報告</b>'}\n• {html.escape(report_path_display)}",
+        f"• walk-forward: {html.escape(walk_forward_path_display)}",
+        f"• authenticity-audit: {html.escape(audit_path_display)}",
     ])
 
     lines.extend([
@@ -1352,7 +1394,12 @@ def run_maintenance() -> None:
         f"<i>{'⚠️ 僅供研究參考，不構成投注建議' if is_pro_style else '⚠️ 只供研究參考，唔係投注建議'}</i>",
     ])
 
-    notifier.send_sync("\n".join(lines))
+    ok = notifier.send_sync("\n".join(lines))
+    if not ok:
+        logger.warning("Maintenance summary failed to send to Telegram")
+        _save_json_state(state_path, state)
+        return
+
     if has_new_settled:
         state["maintenance_last_notified_marker"] = latest_marker
     _save_json_state(state_path, state)

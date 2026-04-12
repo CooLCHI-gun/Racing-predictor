@@ -132,7 +132,7 @@ class Config:
         default_factory=lambda: _env_int("HEARTBEAT_WINDOW_MINS", 10)
     )
     MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED: bool = field(
-        default_factory=lambda: _env_bool("MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED", True)
+        default_factory=lambda: _env_bool("MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED", False)
     )
     MAINTENANCE_REPORT_DIR: str = field(
         default_factory=lambda: _env_str("MAINTENANCE_REPORT_DIR", "data/reports")

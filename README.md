@@ -257,12 +257,21 @@ GitHub Actions 設定步驟：
     - `TRAINING_RETENTION_MANIFEST_FILE=data/training_retention_manifest.json`
 5. 到 **Actions** 頁面啟用 workflow。
 
+Regression 測試（push / PR 自動執行）：
+
+1. workflow 會在每次 `push` 或 `pull_request` 自動跑以下測試：
+    - `tests/test_race_preview_message.py`（賽前三T/孖T訊息格式）
+    - `tests/test_maintenance_telegram.py`（maintenance Telegram HTML escape regression）
+    - `tests/test_backtest_integrity.py`（回測完整性）
+2. 定時 `cron` 與手動 `workflow_dispatch` 仍然只執行 `run.py --mode ...` 主流程。
+3. 預設 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`，代表 maintenance 摘要是每日固定推送。
+
 ### 一次部署，之後全自動（建議配置）
 
 目標：只需部署一次，之後由 GitHub Actions 自動按時執行 `tick + maintenance + 報告推送`。
 
 1. Secrets 最少要有：`TELEGRAM_TOKEN` 與 `TELEGRAM_CHAT_ID`（若你目前只用舊名 `TELEGRAM_BOT_TOKEN`，請同值再新增一個 `TELEGRAM_TOKEN`）。
-2. Variables 建議設定：`MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`（確保每日 maintenance 摘要固定推送，不會因為無新結算賽果而跳過）。
+2. Variables 建議設定：`MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`；現行 GitHub Actions workflow 亦以 `false` 作預設值，所以 maintenance 摘要預設是每日固定推送，不會因為無新結算賽果而跳過，除非你手動把 repo variable 改成 `true`。
 3. 已內建每日 heartbeat（預設 12:00 HKT）；如要改時間，可直接修改 workflow 內 `HEARTBEAT_*` env。
 4. Push 後 workflow 會在 HKT 09:00-22:59 每 5 分鐘自動執行 `cron`。
 5. `cron` 會自動執行賽前推送（tick）、每日 heartbeat（固定時段一次）以及 maintenance（視窗內一次）。
@@ -270,7 +279,7 @@ GitHub Actions 設定步驟：
 
 GitHub Actions 手動模式說明：
 
-1. `maintenance`：發送每日維護摘要（受 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED` 影響）。
+1. `maintenance`：發送每日維護摘要；在現行 GitHub Actions 預設設定下屬於每日固定推送。只有你手動把 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=true` 時，才會改成只在有新結算賽果時推送。
 2. `backtest`：執行回測並發送「回測模式摘要」到 Telegram。
 3. `optimize`：執行優化並發送「優化模式摘要」到 Telegram（若無已結算真實賽果，也會發送未執行原因）。
 
@@ -278,7 +287,7 @@ GitHub Actions 常見陷阱（收不到 Telegram）：
 
 1. Secret 名稱必須是 `TELEGRAM_TOKEN` 與 `TELEGRAM_CHAT_ID`。
 2. Workflow 讀取的是 `TELEGRAM_TOKEN`；若你仍使用舊名 `TELEGRAM_BOT_TOKEN`，請同步建立 `TELEGRAM_TOKEN`（值相同）。
-3. `maintenance` 在無新結算賽果時可能會跳過通知（可把 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED` 設為 `false` 以強制每日發送）。
+3. 現行 GitHub Actions workflow 預設已注入 `MAINTENANCE_NOTIFY_ONLY_ON_NEW_SETTLED=false`，所以 maintenance 摘要應每日固定推送；只有當你手動覆寫成 `true`，先會在無新結算賽果時跳過通知。
 
 預設推送時間（HKT）：
 
