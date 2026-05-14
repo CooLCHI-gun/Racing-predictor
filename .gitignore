@@ -14,8 +14,10 @@ htmlcov/
 .venv311/
 venv/
 
-# Local settings and secrets
+# Local settings and secrets — catch ALL .env variants
 .env
+.env*
+!.env.example
 
 # IDE / OS
 .vscode/
@@ -26,17 +28,22 @@ Thumbs.db
 data/hkjc_predictor.log
 *.log
 
-# Generated runtime state
+# Generated runtime state — already tracked files won't be deleted
 data/predictions/cron_state.json
 data/predictions/tick_notified.json
 data/reports/maintenance_*.json
+data/predictions/history.json
+data/predictions/*.json
 
-# Optional local output folders
-artifacts/
+# Model binaries
+*.pkl
+*.joblib
+*.h5
 
-# Large generated datasets / exports
+# Large generated datasets
 data/**/*.csv
 data/**/*.parquet
 data/**/*.feather
-data/**/*.pkl
-data/**/*.joblib
+
+# Optional local output folders
+artifacts/
