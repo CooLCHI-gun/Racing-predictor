@@ -303,10 +303,27 @@ def build_features(
         f"null_pct={null_pct.to_dict()}"
     )
 
+    df["elo_x_draw"] = df["elo_rating"] * df["draw_advantage_score"]
+    df["jockey_x_trainer"] = df["jockey_win_rate_30d"] * df["trainer_win_rate_30d"]
+    df["form_x_odds"] = df["recent_form_score"] * (1.0 / df["win_odds"].clip(lower=1.01))
+    df["distance_x_draw"] = df["race_distance"] * df["draw_normalised"]
+    df["win_rate_x_odds"] = df["win_rate"] * (1.0 / df["win_odds"].clip(lower=1.01))
+    for col in INTERACTION_COLS:
+        df[col] = df[col].fillna(0.0).astype(float)
+
     return df
 
 
 # ── Feature column names (for model training) ─────────────────────────────────
+
+# Interaction features (computed at build time)
+INTERACTION_COLS = [
+    "elo_x_draw",
+    "jockey_x_trainer",
+    "form_x_odds",
+    "distance_x_draw",
+    "win_rate_x_odds",
+]
 
 MODEL_FEATURE_COLS = [
     "elo_rating", "elo_vs_field", "elo_delta_last3",
