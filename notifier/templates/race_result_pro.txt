@@ -1,0 +1,8 @@
+🏁📣 <b>賽後對照｜第{race}場</b> - {venue_ch}
+
+🥇 實際頭三: {actual_str}
+🤖 模型頭三: {predicted_str}
+
+{hit_emoji} 命中數: {hits}/3
+{winner_status}
+{trio_status}

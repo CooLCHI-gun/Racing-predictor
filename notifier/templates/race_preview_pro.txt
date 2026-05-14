@@ -1,0 +1,27 @@
+🏇✨ <b>賽前雷達｜第{race}場</b> - {venue_ch} {start_time}
+📍 距離: {distance}m | 班次: {race_class} | 場地: {track_type_ch}
+⛅ 場地狀況: {going}
+
+🎯 <b>焦點三甲預測 (不分先後)</b>
+{top3_lines}
+
+🎰🔥 <b>三T推薦（進取）</b>
+• 主推組合: <b>{primary_trio}</b>
+• 備選組合: <b>{backup_trio}</b>
+• 星級評分: {trio_stars}
+• 風險標籤: {trio_risk_tag}
+• 單注建議: 💵 <b>{trio_stake}</b>
+
+🥈⚡ <b>孖T推薦（穩陣）</b>
+• 主線組合: <b>{quinella_main}</b>
+• 拖膽組合: <b>{quinella_backup}</b>
+• 星級評分: {quinella_stars}
+• 風險標籤: {quinella_risk_tag}
+• 單注建議: 💵 <b>{quinella_stake}</b>
+
+📊 EV亮點: {ev_str}
+
+🔢 共 {n_runners} 匹參賽
+📈 全場模型信心度: {confidence}%
+
+<i>🧪 僅供研究參考，不構成投注建議</i>

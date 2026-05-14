@@ -1,0 +1,21 @@
+🏇 <b>開跑前提你｜第{race}場</b> - {venue_ch} {start_time}
+📍 距離: {distance}m | 班次: {race_class} | 場地: {track_type_ch}
+⛅ 場地狀況: {going}
+
+🎯 <b>我睇好呢三隻 (不分先後)</b>
+{top3_lines}
+
+🎰 <b>三T推介（進取）</b>
+• 主推組合: <b>{primary_trio}</b>
+• 備選組合: <b>{backup_trio}</b>
+
+🥈 <b>孖T推介（穩陣）</b>
+• 主線組合: <b>{quinella_main}</b>
+• 拖膽組合: <b>{quinella_backup}</b>
+
+📊 值博重點: {ev_str}
+
+🔢 共 {n_runners} 匹參賽
+📈 今場整體信心: {confidence}%
+
+<i>🧪 研究用途參考，唔係投注建議</i>

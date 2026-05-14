@@ -1,0 +1,4 @@
+{emoji} <b>系統提示 [{level}]</b>
+時間: {timestamp}
+
+{message}
