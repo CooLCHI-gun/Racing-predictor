@@ -39,7 +39,7 @@ except Exception as e:
     LGB_AVAILABLE = False
     logging.warning("LightGBM unavailable (%s); ensemble will use XGBoost only", e)
 
-from features.builder import MODEL_FEATURE_COLS
+from features.builder import MODEL_FEATURE_COLS, INTERACTION_COLS
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class EnsembleTrainer:
         self.xgb_model = None
         self.lgb_model = None
         self.scaler = StandardScaler()
-        self.feature_cols: List[str] = MODEL_FEATURE_COLS
+        self.feature_cols: List[str] = MODEL_FEATURE_COLS + INTERACTION_COLS
         self.is_trained = False
         self.training_source: str = "unknown"
         self.training_generated_at: Optional[str] = None
@@ -188,6 +188,12 @@ class EnsembleTrainer:
                     "race_distance": distance,
                     "n_runners": n_runners,
                     "venue_is_st": venue_is_st,
+                    # Interaction features
+                    "elo_x_draw": round((elo_ratings[i] - 1500) / 100 * draw_adv, 4),
+                    "jockey_x_trainer": round(jk_win_30d * tr_win_30d, 4),
+                    "form_x_odds": round(form_scores[i] / max(win_odds, 1.01), 4),
+                    "distance_x_draw": round(distance * draw / n_runners, 4),
+                    "win_rate_x_odds": round((true_quality[i] * 0.1 + 0.15) / max(win_odds, 1.01), 4),
                     # Target
                     "is_top3": is_top3,
                     "finish_position": finish_pos,

@@ -6,6 +6,7 @@ All messages are in Traditional Chinese with emoji formatting.
 """
 import asyncio
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List
@@ -38,6 +39,21 @@ class TelegramNotifier:
         if self.message_style not in {"casual", "pro"}:
             self.message_style = "pro"
         self._bot: Any = None
+        self._templates: Dict[str, str] = {}
+
+    def _load_template(self, name: str) -> str:
+        """Load template from disk with caching."""
+        if name in self._templates:
+            return self._templates[name]
+        tpl_path = os.path.join(os.path.dirname(__file__), "templates", f"{name}_{self.message_style}.txt")
+        fallback_path = os.path.join(os.path.dirname(__file__), "templates", f"{name}_pro.txt")
+        path = tpl_path if os.path.exists(tpl_path) else fallback_path
+        try:
+            with open(path, encoding="utf-8") as f:
+                self._templates[name] = f.read()
+        except FileNotFoundError:
+            self._templates[name] = "[{name}] template missing"
+        return self._templates[name]
 
         if not self.token or not self.chat_id:
             logger.warning(
@@ -274,18 +290,18 @@ class TelegramNotifier:
         predicted_str = " / ".join(f"#{n}" for n in predicted_nums) if predicted_nums else "N/A"
         actual_str = " / ".join(f"#{n}" for n in actual_top3)
 
-        title = "🏁📣 <b>賽後對照｜第{race}場</b>" if self._is_pro() else "🏁 <b>賽果出咗｜第{race}場</b>"
-        predicted_label = "🤖 模型頭三" if self._is_pro() else "🤖 我哋預測頭三"
-
-        text = (
-            f"{title.format(race=race.race_number)} - {venue_ch}\n"
-            f"\n"
-            f"🥇 實際頭三: {actual_str}\n"
-            f"{predicted_label}: {predicted_str}\n"
-            f"\n"
-            f"{hit_emoji} 命中數: {hits}/3\n"
-            f"{'✅ 首選命中，節奏漂亮！' if winner_correct else '❌ 首選未中，下場再追！'}\n"
-            f"{'🎉 三T完整命中！' if trio_hit else ('📌 三T未齊，持續追蹤變化。' if self._is_pro() else '📌 今場三T未齊，下場再嚟。')}\n"
+        tpl = self._load_template("race_result")
+        winner_status = "✅ 首選命中，節奏漂亮！" if winner_correct else "❌ 首選未中，下場再追！"
+        trio_status = "🎉 三T完整命中！" if trio_hit else "📌 三T未齊，持續追蹤變化。"
+        text = tpl.format(
+            race=race.race_number,
+            venue_ch=venue_ch,
+            actual_str=actual_str,
+            predicted_str=predicted_str,
+            hit_emoji=hit_emoji,
+            hits=hits,
+            winner_status=winner_status,
+            trio_status=trio_status,
         )
 
         return await self._send(text)
@@ -343,13 +359,12 @@ class TelegramNotifier:
         """
         level_emojis = {"INFO": "ℹ️", "WARNING": "⚠️", "ERROR": "🚨"}
         emoji = level_emojis.get(level, "📢")
-
-        title = f"{emoji} <b>系統通知 [{level}]</b>" if self._is_pro() else f"{emoji} <b>系統提示 [{level}]</b>"
-        text = (
-            f"{title}\n"
-            f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"\n"
-            f"{message}"
+        tpl = self._load_template("system_alert")
+        text = tpl.format(
+            emoji=emoji,
+            level=level,
+            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            message=message,
         )
         return await self._send(text)
 
