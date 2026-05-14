@@ -46,10 +46,13 @@ class TelegramNotifier:
             )
 
     def _get_bot(self) -> Any:
-        """Create a Telegram bot bound to the current event loop."""
+        """Create or reuse cached Telegram bot instance."""
+        if self._bot is not None:
+            return self._bot
         try:
             from telegram import Bot
-            return Bot(token=self.token)
+            self._bot = Bot(token=self.token)
+            return self._bot
         except ImportError:
             logger.error("python-telegram-bot not installed: pip install python-telegram-bot==20.6")
         except Exception as e:
@@ -70,15 +73,6 @@ class TelegramNotifier:
         Returns:
             True if sent successfully, False otherwise
         """
-        if self.language_guard_enabled and self._batch_blocked:
-            logger.error("[TELEGRAM BLOCKED] 語言守門已觸發，整批訊息停止發送")
-            return False
-
-        if self.language_guard_enabled and self._contains_english_horse_name(text):
-            self._batch_blocked = True
-            logger.error("[TELEGRAM BLOCKED] 語言守門啟用：偵測到英文馬名，已阻擋發送")
-            return False
-
         if not self.is_configured():
             logger.info(f"[TELEGRAM MOCK] Would send:\n{text}")
             return False

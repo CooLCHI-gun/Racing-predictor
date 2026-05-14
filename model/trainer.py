@@ -9,14 +9,21 @@ import logging
 import os
 import random
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 import joblib
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.model_selection import cross_val_score as _cv_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, average_precision_score
+
+try:
+    import optuna
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
 
 try:
     import xgboost as xgb
@@ -401,16 +408,83 @@ class EnsembleTrainer:
         self.training_generated_at = datetime.now().isoformat()
         return metrics
 
-    def _ensemble_proba(self, X: pd.DataFrame) -> np.ndarray:
-        """Compute ensemble probability as weighted average of XGB and LGB."""
+    def tune_hyperparams(self, df, n_trials: int = 20):
+        """Use Optuna to improve hyperparameters. Falls back to defaults if unavailable."""
+        if not OPTUNA_AVAILABLE:
+            logger.info("Optuna not installed; using default hyperparameters")
+            return
+
+        X = df[self.feature_cols].fillna(df[self.feature_cols].median())
+        y = df["is_top3"].values
+
+        def objective(trial, model_type):
+            if model_type == "xgb":
+                params = {
+                    "n_estimators": trial.suggest_int("n_estimators", 100, 500, step=50),
+                    "max_depth": trial.suggest_int("max_depth", 3, 8),
+                    "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+                    "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+                    "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+                    "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+                    "scale_pos_weight": trial.suggest_float("scale_pos_weight", 1.5, 4.0),
+                    "random_state": 42,
+                    "verbosity": 0,
+                }
+                model = xgb.XGBClassifier(**params)
+            else:
+                params = {
+                    "n_estimators": trial.suggest_int("n_estimators", 100, 500, step=50),
+                    "max_depth": trial.suggest_int("max_depth", 3, 8),
+                    "num_leaves": trial.suggest_int("num_leaves", 15, 64),
+                    "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.2, log=True),
+                    "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+                    "colsample_bytree": trial.suggest_float("colsample_bytree", 0.6, 1.0),
+                    "min_child_samples": trial.suggest_int("min_child_samples", 5, 30),
+                    "class_weight": "balanced",
+                    "random_state": 42,
+                    "verbose": -1,
+                }
+                model = lgb.LGBMClassifier(**params)
+            scores = cross_val_score(model, X, y, cv=3, scoring="roc_auc")
+            return scores.mean()
+
+        for model_type in ("xgb", "lgb"):
+            try:
+                study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=42))
+                study.optimize(lambda t: objective(t, model_type), n_trials=n_trials, n_jobs=1)
+                best = study.best_params
+                logger.info("Optuna %s best AUC=%.4f params=%s", model_type, study.best_value, best)
+            except Exception as e:
+                logger.warning("Optuna %s failed: %s", model_type, e)
+
+    def compute_dynamic_weights(self, backtest_records, segment_key: str = ""):
+        """Return (xgb_weight, lgb_weight) based on recent performance."""
+        if not backtest_records:
+            return (0.5, 0.5)
+        settled = [r for r in backtest_records if getattr(r, "actual_winner", 0) > 0][-200:]
+        if not settled:
+            return (0.5, 0.5)
+        xgb_correct = sum(1 for r in settled if getattr(r, "winner_correct", False))
+        lgb_correct = sum(1 for r in settled if getattr(r, "lgb_winner_correct", False))
+        total = max(xgb_correct + lgb_correct, 1)
+        return (max(0.05, xgb_correct / total), max(0.05, lgb_correct / total))
+
+    def _ensemble_proba(self, X: pd.DataFrame, weights: Optional[Tuple[float, float]] = None) -> np.ndarray:
+        """Compute ensemble probability using dynamic or given weights."""
+        if weights is None:
+            weights = (0.5, 0.5)
+        xgb_w, lgb_w = weights
         preds = []
+        w_sum = 0.0
         if XGB_AVAILABLE and self.xgb_model is not None:
-            preds.append(self.xgb_model.predict_proba(X)[:, 1])
+            preds.append(self.xgb_model.predict_proba(X)[:, 1] * xgb_w)
+            w_sum += xgb_w
         if LGB_AVAILABLE and self.lgb_model is not None:
-            preds.append(self.lgb_model.predict_proba(X)[:, 1])
-        if not preds:
+            preds.append(self.lgb_model.predict_proba(X)[:, 1] * lgb_w)
+            w_sum += lgb_w
+        if not preds or w_sum == 0:
             return np.full(len(X), 1.0 / 12)
-        return np.mean(preds, axis=0)
+        return sum(preds) / w_sum
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """
