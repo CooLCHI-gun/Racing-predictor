@@ -60,6 +60,7 @@ class HorseEntry:
     rating_change: int       # Rtg.+/- relative to declaration weight
     last_6_runs: str         # e.g. "1/3/5/2/4/7"
     gear: str                # Equipment codes e.g. "TT", "B", "XB"
+    horse_weight: int = 0    # Declared horse weight (body weight in lbs)
     age: int = 0
     country: str = "HK"
     priority: str = ""       # "+" Trump, "*" priority, "1"/"2" trainer pref
@@ -363,6 +364,10 @@ def _parse_horse_row(row: Any) -> Optional[HorseEntry]:
         weight_text = texts[5] if len(texts) > 5 else "126"
         weight = int(weight_text) if weight_text.isdigit() else 126
 
+        # Horse Weight (declared body weight at col 10)
+        hw_text = texts[10] if len(texts) > 10 else "0"
+        horse_weight = int(hw_text) if hw_text.isdigit() else 0
+
         # Rating (col 11)
         rating_text = texts[11] if len(texts) > 11 else "0"
         rating = int(rating_text) if rating_text.lstrip("-").isdigit() else 0
@@ -403,6 +408,7 @@ def _parse_horse_row(row: Any) -> Optional[HorseEntry]:
             rating_change=rtg_change,
             last_6_runs=last6,
             gear=gear,
+            horse_weight=horse_weight,
             age=age,
             priority=priority,
         )

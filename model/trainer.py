@@ -203,6 +203,17 @@ class EnsembleTrainer:
                     "class_x_dist": round(rng.choice([-2, -1, 0, 0, 0, 1]) * np.clip(0.30 + rng.gauss(0, 0.18), 0, 1), 4),
                     "weight_x_change": round(rng.randint(113, 133) * np.clip(rng.gauss(0, 6), -25, 25), 1),
                     "margin_x_form": round(max(0, rng.gauss(5, 4)) * (1.0 - float(form_scores[i])), 4),
+                    # NEW Level 2 features
+                    "running_style_score": round(rng.choice([-0.3, 0.0, 0.5]), 2),
+                    "gear_change": round(rng.choice([-0.25, 0.0, 0.0, 0.2, 0.4]), 2),
+                    "blinker_first_time": round(rng.choice([0.0, 1.0]), 2),
+                    "body_weight_change": round(rng.gauss(0, 8), 1),
+                    "body_weight_trend": round(rng.gauss(0, 3), 1),
+                    "margin_trend": round(rng.gauss(0, 1.5), 2),
+                    "track_config_perf": round(np.clip(0.30 + rng.gauss(0, 0.15), 0, 1), 4),
+                    "style_x_config": round(rng.choice([-0.3, 0.0, 0.5]) * np.clip(0.30 + rng.gauss(0, 0.15), 0, 1), 4),
+                    "gear_x_margin": round(rng.choice([-0.25, 0.0, 0.0, 0.2, 0.4]) * (1.0 / max(rng.gauss(5, 4), 1)), 4),
+                    "weight_x_trend": round(rng.gauss(0, 8) * np.clip(rng.gauss(0, 1.5), -5, 5), 2),
                     # Target
                     "is_top3": is_top3,
                     "finish_position": finish_pos,

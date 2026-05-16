@@ -117,6 +117,189 @@ def _avg_winning_margin(past_races: list) -> float:
     return sum(margins) / len(margins)
 
 
+# ── NEW: Running style from sectionals ────────────────────────────────────────
+
+def _running_style(running_position: str) -> str:
+    """
+    Infer running style from sectional position string like "6-7-1".
+
+    HKJC sectionals: position_at_800m - position_at_400m - final_position
+    Returns: "leader" | "stalker" | "closer" | "unknown"
+    """
+    if not running_position or running_position in ("-", "---", "0-0-0"):
+        return "unknown"
+    parts = running_position.replace("-", "/").split("/")
+    if len(parts) < 2:
+        return "unknown"
+    try:
+        early_pos = int(parts[0])
+        mid_pos = int(parts[1]) if len(parts) > 1 else early_pos
+        # Leader: in top 3 at early or mid stages
+        if early_pos <= 3:
+            return "leader"
+        # Stalker: 4-6 position, within striking distance
+        if early_pos <= 6:
+            return "stalker"
+        # Closer: at or near the back early, making late ground
+        return "closer"
+    except (ValueError, IndexError):
+        return "unknown"
+
+
+def _running_style_score(past_races: list) -> float:
+    """
+    Score recent running style consistency.
+    Positive = leader/stalker, Negative = closer, 0 = mixed/unknown.
+    """
+    styles = []
+    for r in past_races[:6]:
+        if r.finish_position >= 99:
+            continue
+        style = _running_style(r.running_position)
+        if style == "leader":
+            styles.append(0.5)
+        elif style == "stalker":
+            styles.append(0.0)
+        elif style == "closer":
+            styles.append(-0.3)
+    if not styles:
+        return 0.0
+    return sum(styles) / len(styles)
+
+
+# ── NEW: Gear change features ────────────────────────────────────────────────
+
+def _gear_changed(past_races: list, current_gear: str) -> float:
+    """
+    Detect if gear/equipment has changed from last run.
+
+    1.0 = gear added (blinkers/tongue tie first time → potential improvement)
+    -1.0 = gear removed
+    0.0 = same gear
+    """
+    if not past_races:
+        return 0.0
+    last_race = next((r for r in past_races if r.finish_position < 99), None)
+    if not last_race:
+        return 0.0
+    prev_gear = (last_race.gear or "").strip().upper()
+    curr_gear = (current_gear or "").strip().upper()
+    if prev_gear == curr_gear:
+        return 0.0
+    # Determine if gear was added (new equipment)
+    prev_set = set(prev_gear.split("/")) if prev_gear else set()
+    curr_set = set(curr_gear.split("/")) if curr_gear else set()
+    added = curr_set - prev_set
+    removed = prev_set - curr_set
+    # Blinkers/tongue tie first time are strong signals
+    gear_score = 0.0
+    for g in added:
+        if g in ("B", "BO"):     # Blinkers first time
+            gear_score += 0.4
+        elif g in ("TT", "P"):   # Tongue tie / pacifier first time
+            gear_score += 0.2
+        elif g == "H":           # Hood first time
+            gear_score += 0.15
+        elif g == "XB":          # Cheek pieces
+            gear_score += 0.1
+        else:
+            gear_score += 0.05
+    for g in removed:
+        if g in ("B", "BO"):
+            gear_score -= 0.25
+        elif g in ("TT", "P"):
+            gear_score -= 0.15
+        else:
+            gear_score -= 0.05
+    return round(max(-1.0, min(1.0, gear_score)), 2)
+
+
+def _gear_first_time_blinkers(past_races: list, current_gear: str) -> float:
+    """1.0 if blinkers are applied for the first time ever."""
+    curr_gear = (current_gear or "").strip().upper()
+    has_blinkers_now = "B" in curr_gear or "BO" in curr_gear
+    has_ever_had_blinkers = any(
+        "B" in (r.gear or "").upper() or "BO" in (r.gear or "").upper()
+        for r in past_races if r.finish_position < 99
+    )
+    if has_blinkers_now and not has_ever_had_blinkers:
+        return 1.0
+    return 0.0
+
+
+# ── NEW: Body weight change features ──────────────────────────────────────────
+
+def _body_weight_change(past_races: list, current_body_weight: int) -> float:
+    """
+    Body weight change from last run.
+    Positive = heavier today (could be fitter or carrying more condition).
+    Negative = lighter (could be fitness concern).
+    """
+    if not past_races or current_body_weight <= 0:
+        return 0.0
+    last_race = next((r for r in past_races if r.finish_position < 99
+                      and r.declared_horse_weight > 0), None)
+    if not last_race:
+        return 0.0
+    return current_body_weight - last_race.declared_horse_weight
+
+
+def _body_weight_trend(past_races: list, current_body_weight: int) -> float:
+    """
+    Body weight trend over last 3 runs.
+    Positive = gaining weight over time (potential fitness improvement).
+    Negative = losing weight (potential health issue).
+    """
+    weights = []
+    for r in past_races[:5]:
+        if r.finish_position < 99 and r.declared_horse_weight > 0:
+            weights.append(r.declared_horse_weight)
+    if current_body_weight > 0:
+        weights.append(current_body_weight)
+    if len(weights) < 2:
+        return 0.0
+    # Simple linear trend: last - first, averaged over number of steps
+    return round((weights[-1] - weights[0]) / max(len(weights) - 1, 1), 1)
+
+
+# ── NEW: Winning margin trend ─────────────────────────────────────────────────
+
+def _margin_trend(past_races: list) -> float:
+    """
+    Trend in winning margins over recent races.
+    Positive = margins improving (getting closer to winner).
+    Negative = margins worsening (running worse).
+    """
+    margins = []
+    for r in past_races[:8]:
+        if r.finish_position < 99 and r.winning_margin is not None:
+            margins.append(r.winning_margin)
+    if len(margins) < 2:
+        return 0.0
+    # Linear trend: earlier margins vs later margins
+    half = len(margins) // 2
+    early_avg = sum(margins[:half]) / max(half, 1)
+    late_avg = sum(margins[half:]) / max(len(margins) - half, 1)
+    # Negative trend = margins getting smaller = improving
+    return round(max(-5.0, min(5.0, early_avg - late_avg)), 2)
+
+
+# ── NEW: Track config preference ──────────────────────────────────────────────
+
+def _track_config_performance(past_races: list, current_config: str) -> float:
+    """
+    Place rate when running on the same track configuration (A/B/C+3 etc.).
+    """
+    current_config = (current_config or "").strip().upper()
+    if not current_config:
+        return 0.3
+    similar = [r for r in past_races if r.finish_position < 99
+               and r.track_config.strip().upper() == current_config]
+    if not similar:
+        return 0.3
+    return sum(1 for r in similar if r.finish_position <= 3) / len(similar)
+
+
 def _form_score(past_races: list, n: int = 6) -> float:
     """
     Calculate weighted recent form score.
@@ -278,6 +461,15 @@ def build_features(
         wt_change = _weight_change(past, horse.weight)
         avg_margin = _avg_winning_margin(past)
 
+        # ── NEW Level 2 features ──────────────────────────────────────────────
+        run_style = _running_style_score(past)
+        gear_chg = _gear_changed(past, horse.gear)
+        blinker_first = _gear_first_time_blinkers(past, horse.gear)
+        body_wt_chg = _body_weight_change(past, horse.horse_weight)
+        body_wt_trend = _body_weight_trend(past, horse.horse_weight)
+        margin_tr = _margin_trend(past)
+        track_cfg_perf = _track_config_performance(past, race.track_config)
+
         days_since_last = _days_since(past[0].race_date) if past else 999
 
         # Win rate & place rate from profile
@@ -333,6 +525,23 @@ def build_features(
             # ── NEW: Weight/condition features ────────────────────────────────
             "weight_change": round(wt_change, 1),
             "avg_winning_margin": round(avg_margin, 2),
+
+            # ── NEW: Running style features ────────────────────────────────────
+            "running_style_score": round(run_style, 2),
+
+            # ── NEW: Gear change features ──────────────────────────────────────
+            "gear_change": round(gear_chg, 2),
+            "blinker_first_time": round(blinker_first, 2),
+
+            # ── NEW: Body weight features ──────────────────────────────────────
+            "body_weight_change": round(body_wt_chg, 1),
+            "body_weight_trend": round(body_wt_trend, 1),
+
+            # ── NEW: Margin trend feature ──────────────────────────────────────
+            "margin_trend": round(margin_tr, 2),
+
+            # ── NEW: Track config feature ──────────────────────────────────────
+            "track_config_perf": round(track_cfg_perf, 4),
 
             # ── Distance/going features ────────────────────────────────────
             "distance_aptitude": round(dist_apt, 4),
@@ -391,6 +600,9 @@ def build_features(
     df["class_x_dist"] = df["class_change"] * df["distance_aptitude"]
     df["weight_x_change"] = df["weight_carried"] * df["weight_change"].clip(-20, 20)
     df["margin_x_form"] = df["avg_winning_margin"].clip(0, 30) * (1.0 - df["recent_form_score"])
+    df["style_x_config"] = df["running_style_score"] * df["track_config_perf"]
+    df["gear_x_margin"] = df["gear_change"] * (1.0 / (df["avg_winning_margin"].clip(1, 30)))
+    df["weight_x_trend"] = df["body_weight_change"] * df["margin_trend"].clip(-5, 5)
     for col in INTERACTION_COLS:
         df[col] = df[col].fillna(0.0).astype(float)
 
@@ -409,6 +621,9 @@ INTERACTION_COLS = [
     "class_x_dist",
     "weight_x_change",
     "margin_x_form",
+    "style_x_config",
+    "gear_x_margin",
+    "weight_x_trend",
 ]
 
 MODEL_FEATURE_COLS = [
@@ -425,7 +640,13 @@ MODEL_FEATURE_COLS = [
     "implied_win_probability", "implied_place_probability",
     "class_change", "class_performance",
     "weight_change", "avg_winning_margin",
+    "running_style_score",
+    "gear_change", "blinker_first_time",
+    "body_weight_change", "body_weight_trend",
+    "margin_trend",
+    "track_config_perf",
     "race_distance", "n_runners", "venue_is_st",
     # Interaction features
     "class_x_dist", "weight_x_change", "margin_x_form",
+    "style_x_config", "gear_x_margin", "weight_x_trend",
 ]

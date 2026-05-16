@@ -88,6 +88,8 @@ class PastRace:
     winning_margin: float     # lengths behind winner (0.0 if won)
     finish_time: str          # "m:ss.ss"
     running_position: str     # e.g. "6-7-1" sectional positions
+    gear: str = ""            # e.g. "B", "TT", "XB", "H" — equipment
+    declared_horse_weight: int = 0  # Declar. Horse Wt. (body weight in lbs)
 
 
 @dataclass
@@ -281,6 +283,16 @@ def _parse_past_race_row(cells: List) -> Optional[PastRace]:
         # Finish time
         finish_time = texts[15] if len(texts) > 15 else "0:00.0"
 
+        # NEW: Gear (equipment) — e.g. "B", "TT", "XB"
+        gear = texts[17] if len(texts) > 17 else ""
+
+        # NEW: Declared Horse Weight (body weight)
+        dhw_str = texts[16] if len(texts) > 16 else "0"
+        try:
+            declared_hw = int(dhw_str) if dhw_str.isdigit() else 0
+        except (ValueError, TypeError):
+            declared_hw = 0
+
         # Race number from link in cell[0]
         race_num = 0
         link = cells[0].find("a")
@@ -310,6 +322,8 @@ def _parse_past_race_row(cells: List) -> Optional[PastRace]:
             winning_margin=winning_margin,
             finish_time=finish_time,
             running_position=running_pos,
+            gear=gear,
+            declared_horse_weight=declared_hw,
         )
     except (IndexError, ValueError) as e:
         logger.debug(f"Row parse error: {e}")
