@@ -64,6 +64,7 @@ class EnsembleTrainer:
         self.is_trained = False
         self.training_source: str = "unknown"
         self.training_generated_at: Optional[str] = None
+        self.ensemble_weights: Tuple[float, float] = (0.5, 0.5)
 
         # XGBoost hyperparameters
         self.xgb_params = {
@@ -471,6 +472,21 @@ class EnsembleTrainer:
             for name, score in feature_importance[:10]:
                 logger.info(f"  {name}: {score:.4f}")
 
+        # ── Dynamic ensemble weights ──────────────────────────────────────────
+        # Weight each model by its validation AUC (or train AUC if no validation)
+        if has_val:
+            xgb_score = metrics.get("xgb_auc_val", 0.5)
+            lgb_score = metrics.get("lgb_auc_val", 0.5)
+        else:
+            xgb_score = metrics.get("xgb_auc_train", 0.5)
+            lgb_score = metrics.get("lgb_auc_train", 0.5)
+        total = max(xgb_score + lgb_score, 0.01)
+        self.ensemble_weights = (
+            max(0.1, xgb_score / total),
+            max(0.1, lgb_score / total),
+        )
+        logger.info(f"Ensemble weights: XGB={self.ensemble_weights[0]:.3f} LGB={self.ensemble_weights[1]:.3f}")
+
         self.is_trained = True
         self.training_source = training_source
         self.training_generated_at = datetime.now().isoformat()
@@ -557,9 +573,12 @@ class EnsembleTrainer:
         return (max(0.05, xgb_correct / total), max(0.05, lgb_correct / total))
 
     def _ensemble_proba(self, X: pd.DataFrame, weights: Optional[Tuple[float, float]] = None) -> np.ndarray:
-        """Compute ensemble probability using dynamic or given weights."""
+        """
+        Compute ensemble probability using dynamic or given weights.
+        When no weights provided, uses stored ensemble weights (updated after training).
+        """
         if weights is None:
-            weights = (0.5, 0.5)
+            weights = self.ensemble_weights
         xgb_w, lgb_w = weights
         preds = []
         w_sum = 0.0
