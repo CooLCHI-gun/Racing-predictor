@@ -57,7 +57,7 @@ jobs:
 
       - name: Install core deps (lighter than full requirements)
         run: |
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           pip install pytest optuna
 
@@ -100,7 +100,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           pip install optuna
 
