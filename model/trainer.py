@@ -14,8 +14,7 @@ from typing import Dict, List, Optional, Tuple, Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.model_selection import cross_val_score as _cv_score
+from sklearn.model_selection import StratifiedKFold, cross_val_score, TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, average_precision_score
 
@@ -61,7 +60,7 @@ class EnsembleTrainer:
         self.xgb_model = None
         self.lgb_model = None
         self.scaler = StandardScaler()
-        self.feature_cols: List[str] = MODEL_FEATURE_COLS + INTERACTION_COLS
+        self.feature_cols: List[str] = list(dict.fromkeys(MODEL_FEATURE_COLS + INTERACTION_COLS))
         self.is_trained = False
         self.training_source: str = "unknown"
         self.training_generated_at: Optional[str] = None
@@ -91,48 +90,52 @@ class EnsembleTrainer:
             "num_leaves": 31,
             "min_child_samples": 10,
             "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "reg_alpha": 0.1,
-            "reg_lambda": 1.0,
-            "class_weight": "balanced",
-            "random_state": 42,
-            "verbose": -1,
         }
 
     def generate_synthetic_data(self, n_races: int = 800) -> pd.DataFrame:
         """
-        Generate synthetic training data representing ~2 Hong Kong racing seasons.
+        Generate realistic synthetic training data.
 
-        Args:
-            n_races: Number of simulated races
-
-        Returns:
-            DataFrame with features + target column "is_top3"
+        Key properties (calibrated for realism):
+        - Top-3 rate ~25-30% (balanced class)
+        - Feature-target correlations similar to real racing (noisy, not obvious)
+        - ELO range 1350-1650 (most horses 1400-1600)
+        - Win rate 5-15%, place rate 15-35%
+        - Draw advantage ±15% impact
+        - Jockey/trainer combo effect 5-10%
         """
         logger.info(f"Generating {n_races} synthetic races for training data...")
+        rows: List[Dict] = []
         rng = random.Random(42)
-        np.random.seed(42)
 
-        rows = []
-        base_date = date.today() - timedelta(days=730)  # ~2 years ago
+        for _ in range(n_races):
+            n_runners = rng.choice([10, 11, 12, 13, 14, 12, 12, 12])
+            distance = rng.choice([1000, 1200, 1400, 1600, 1650, 1800, 2000, 2200, 2400])
+            venue_is_st = rng.randint(0, 1)
 
-        for race_num in range(n_races):
-            n_runners = rng.randint(8, 14)
-            race_date = base_date + timedelta(days=race_num // 3)
-            distance = rng.choice([1000, 1200, 1400, 1600, 1800, 2000, 2400])
-            venue_is_st = rng.choice([0, 1])
+            # True quality: mostly noise, tiny signal from ELo/handicap
+            # Real racing ~10-15% predictable; 85-90% noise
+            base_noise = np.random.normal(0, 1.0, n_runners)
+            elo_ratings = [np.clip(np.random.normal(1500, 50), 1350, 1650) for _ in range(n_runners)]
+            handicap_ratings = [rng.randint(40, 100) for _ in range(n_runners)]
+            elo_factor = [(e - 1500) / 300.0 for e in elo_ratings]
+            hcp_factor = [(h - 70) / 50.0 for h in handicap_ratings]
 
-            # Generate raw horse attributes
-            true_quality = np.random.normal(0, 1, n_runners)  # latent quality
-            elo_ratings = 1500 + true_quality * 80 + np.random.normal(0, 30, n_runners)
-            handicap_ratings = 70 + true_quality * 15 + np.random.normal(0, 8, n_runners)
-            form_scores = np.clip(0.5 + true_quality * 0.15 + np.random.normal(0, 0.1, n_runners), 0, 1)
-            draws = rng.sample(range(1, n_runners + 1), n_runners)
+            # True quality: 90% noise, 10% signal
+            true_quality = (base_noise * 0.90 + np.array(elo_factor) * 0.05 + np.array(hcp_factor) * 0.05)
+            # Normalize to [0, 1] range within race
+            true_quality = (true_quality - true_quality.min()) / max(true_quality.max() - true_quality.min(), 0.01)
 
-            # Actual finishing order (based on true quality + randomness)
-            noise = np.random.normal(0, 0.8, n_runners)
-            scores = true_quality + noise
-            finish_order = np.argsort(-scores)  # descending
+            draws = list(range(1, n_runners + 1))
+            rng.shuffle(draws)
+
+            # Form scores: mostly random
+            form_scores = [np.clip(rng.random() * 0.4 + tq * 0.1, 0.0, 0.5) for tq in true_quality]
+
+            # Finishing order: almost entirely noise
+            noise_std = 3.0
+            scores = true_quality * 0.5 + np.random.normal(0, noise_std, n_runners)
+            finish_order = np.argsort(-scores)
 
             for i in range(n_runners):
                 horse_idx = i
@@ -140,51 +143,50 @@ class EnsembleTrainer:
                 is_top3 = int(finish_pos <= 3)
 
                 draw = draws[i]
-                # Draw bias effect
-                draw_adv = (n_runners / 2 - draw) / n_runners * 0.3
+                draw_adv = (n_runners / 2 - draw) / n_runners * 0.3 * rng.uniform(0.5, 1.0)
 
-                jk_win_30d = np.clip(rng.gauss(0.18, 0.06), 0.05, 0.35)
-                tr_win_30d = np.clip(rng.gauss(0.16, 0.05), 0.04, 0.28)
-                combo_win = np.clip((jk_win_30d + tr_win_30d) / 2 * rng.gauss(1, 0.2), 0.03, 0.40)
+                # Jockey/trainer: weakly correlated with horse quality
+                jk_win_30d = np.clip(rng.gauss(0.14, 0.06) + elo_factor[i] * 0.02, 0.04, 0.30)
+                tr_win_30d = np.clip(rng.gauss(0.12, 0.05) + hcp_factor[i] * 0.02, 0.03, 0.25)
+                combo_win = np.clip((jk_win_30d + tr_win_30d) / 2 * rng.gauss(1, 0.15), 0.03, 0.30)
 
-                win_odds = max(1.2, 1.0 / max(0.02, (true_quality[i] - min(true_quality) + 0.5) / n_runners * 1.1))
-                place_odds = max(1.05, win_odds / rng.uniform(3.0, 4.5))
-
-                days_since = rng.randint(10, 200)
+                win_odds = max(1.5, 1.0 / max(0.01, (true_quality[i] + 0.05) / n_runners * 1.1 + rng.gauss(0, 0.02)))
+                win_odds = min(99.0, win_odds)
+                place_odds = max(1.1, win_odds / rng.uniform(2.8, 4.5))
+                days_since = rng.randint(7, 250)
 
                 rows.append({
-                    # Features
                     "elo_rating": round(elo_ratings[i], 2),
                     "elo_vs_field": round(elo_ratings[i] - np.mean(elo_ratings), 2),
-                    "elo_delta_last3": round(rng.gauss(0, 5), 2),
+                    "elo_delta_last3": round(rng.gauss(0, 8), 2),
                     "jockey_win_rate_30d": round(jk_win_30d, 4),
-                    "jockey_place_rate_30d": round(min(jk_win_30d * 2.8, 0.65), 4),
-                    "jockey_win_rate_overall": round(jk_win_30d * rng.uniform(0.9, 1.1), 4),
-                    "jockey_venue_win_rate": round(jk_win_30d * rng.uniform(0.8, 1.2), 4),
-                    "jockey_distance_win_rate": round(jk_win_30d * rng.uniform(0.8, 1.2), 4),
+                    "jockey_place_rate_30d": round(min(jk_win_30d * 2.5, 0.60), 4),
+                    "jockey_win_rate_overall": round(jk_win_30d * rng.uniform(0.85, 1.15), 4),
+                    "jockey_venue_win_rate": round(jk_win_30d * rng.uniform(0.75, 1.25), 4),
+                    "jockey_distance_win_rate": round(jk_win_30d * rng.uniform(0.75, 1.25), 4),
                     "trainer_win_rate_30d": round(tr_win_30d, 4),
-                    "trainer_place_rate_30d": round(min(tr_win_30d * 2.8, 0.60), 4),
-                    "trainer_win_rate_overall": round(tr_win_30d * rng.uniform(0.9, 1.1), 4),
+                    "trainer_place_rate_30d": round(min(tr_win_30d * 2.5, 0.55), 4),
+                    "trainer_win_rate_overall": round(tr_win_30d * rng.uniform(0.85, 1.15), 4),
                     "combo_win_rate": round(combo_win, 4),
-                    "combo_place_rate": round(min(combo_win * 2.5, 0.55), 4),
-                    "draw_advantage_score": round(draw_adv + rng.gauss(0, 0.1), 4),
+                    "combo_place_rate": round(min(combo_win * 2.5, 0.50), 4),
+                    "draw_advantage_score": round(draw_adv + rng.gauss(0, 0.15), 4),
                     "draw_position": draw,
                     "draw_normalised": round(draw / n_runners, 4),
                     "recent_form_score": round(float(form_scores[i]), 4),
-                    "win_rate": round(max(0, true_quality[i] * 0.1 + 0.15 + rng.gauss(0, 0.05)), 4),
-                    "place_rate": round(max(0, true_quality[i] * 0.15 + 0.35 + rng.gauss(0, 0.08)), 4),
-                    "distance_aptitude": round(np.clip(0.35 + rng.gauss(0, 0.15), 0, 1), 4),
-                    "going_aptitude": round(np.clip(0.35 + rng.gauss(0, 0.12), 0, 1), 4),
+                    "win_rate": round(max(0.01, true_quality[i] * 0.15 + 0.08 + rng.gauss(0, 0.06)), 4),
+                    "place_rate": round(max(0.02, true_quality[i] * 0.20 + 0.22 + rng.gauss(0, 0.08)), 4),
+                    "distance_aptitude": round(np.clip(0.30 + rng.gauss(0, 0.18), 0, 1), 4),
+                    "going_aptitude": round(np.clip(0.30 + rng.gauss(0, 0.15), 0, 1), 4),
                     "handicap_rating": round(float(handicap_ratings[i]), 1),
-                    "rating_trend": round(rng.gauss(0, 3), 4),
+                    "rating_trend": round(rng.gauss(0, 4), 4),
                     "rating_vs_avg": round(float(handicap_ratings[i] - np.mean(handicap_ratings)), 4),
                     "weight_carried": rng.randint(113, 133),
-                    "weight_vs_avg": round(rng.gauss(0, 0.05), 4),
+                    "weight_vs_avg": round(rng.gauss(0, 0.06), 4),
                     "days_since_last_run": days_since,
                     "win_odds": round(win_odds, 2),
                     "place_odds": round(place_odds, 2),
-                    "implied_win_probability": round(1 / win_odds, 4),
-                    "implied_place_probability": round(1 / place_odds, 4),
+                    "implied_win_probability": round(1.0 / max(win_odds, 1.01), 4),
+                    "implied_place_probability": round(1.0 / max(place_odds, 1.01), 4),
                     "race_distance": distance,
                     "n_runners": n_runners,
                     "venue_is_st": venue_is_st,
@@ -193,7 +195,14 @@ class EnsembleTrainer:
                     "jockey_x_trainer": round(jk_win_30d * tr_win_30d, 4),
                     "form_x_odds": round(form_scores[i] / max(win_odds, 1.01), 4),
                     "distance_x_draw": round(distance * draw / n_runners, 4),
-                    "win_rate_x_odds": round((true_quality[i] * 0.1 + 0.15) / max(win_odds, 1.01), 4),
+                    "win_rate_x_odds": round(max(0.01, true_quality[i] * 0.10 + 0.10) / max(win_odds, 1.01), 4),
+                    "class_change": round(rng.choice([-2, -1, 0, 0, 0, 1]), 1),
+                    "class_performance": round(np.clip(0.30 + rng.gauss(0, 0.15), 0, 1), 4),
+                    "weight_change": round(rng.gauss(0, 6), 1),
+                    "avg_winning_margin": round(max(0, rng.gauss(5, 4)), 2),
+                    "class_x_dist": round(rng.choice([-2, -1, 0, 0, 0, 1]) * np.clip(0.30 + rng.gauss(0, 0.18), 0, 1), 4),
+                    "weight_x_change": round(rng.randint(113, 133) * np.clip(rng.gauss(0, 6), -25, 25), 1),
+                    "margin_x_form": round(max(0, rng.gauss(5, 4)) * (1.0 - float(form_scores[i])), 4),
                     # Target
                     "is_top3": is_top3,
                     "finish_position": finish_pos,
@@ -384,30 +393,72 @@ class EnsembleTrainer:
 
         logger.info(f"Training on {len(X)} samples, {X.shape[1]} features. Positive rate: {y.mean():.3f}")
 
+        # ── Time-based train/validation split ──────────────────────────────────
+        # Only do time split if we have race_date column (indicates real data)
+        has_date_col = "race_date" in df.columns
+        if has_date_col:
+            try:
+                sorted_idx = df["race_date"].argsort()
+                split_idx = int(len(sorted_idx) * 0.8)
+                train_idx = sorted_idx[:split_idx]
+                val_idx = sorted_idx[split_idx:]
+                X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+                y_train, y_val = y[train_idx], y[val_idx]
+                logger.info(f"Time split: {len(X_train)} train, {len(X_val)} validation (cutoff ~row {split_idx})")
+            except Exception as e:
+                logger.warning(f"Time split failed ({e}), using full data")
+                X_train, X_val = X, X.iloc[:0]
+                y_train, y_val = y, y[:0]
+        else:
+            X_train, X_val = X, X.iloc[:0]
+            y_train, y_val = y, y[:0]
+
+        has_val = len(X_val) > 0 and y_val.sum() > 0
+
         metrics = {}
 
         # ── XGBoost ──────────────────────────────────────────────────────────
         if XGB_AVAILABLE:
             logger.info("Training XGBoost...")
             self.xgb_model = xgb.XGBClassifier(**self.xgb_params)
-            self.xgb_model.fit(X, y)
-            xgb_pred = self.xgb_model.predict_proba(X)[:, 1]
-            metrics["xgb_auc_train"] = round(roc_auc_score(y, xgb_pred), 4)
+            self.xgb_model.fit(X_train, y_train)
+            xgb_pred = self.xgb_model.predict_proba(X_train)[:, 1]
+            metrics["xgb_auc_train"] = round(roc_auc_score(y_train, xgb_pred), 4)
             logger.info(f"XGBoost train AUC: {metrics['xgb_auc_train']}")
+            if has_val:
+                xgb_val_pred = self.xgb_model.predict_proba(X_val)[:, 1]
+                metrics["xgb_auc_val"] = round(roc_auc_score(y_val, xgb_val_pred), 4)
+                logger.info(f"XGBoost val AUC: {metrics['xgb_auc_val']}")
 
         # ── LightGBM ─────────────────────────────────────────────────────────
         if LGB_AVAILABLE:
             logger.info("Training LightGBM...")
             self.lgb_model = lgb.LGBMClassifier(**self.lgb_params)
-            self.lgb_model.fit(X, y)
-            lgb_pred = self.lgb_model.predict_proba(X)[:, 1]
-            metrics["lgb_auc_train"] = round(roc_auc_score(y, lgb_pred), 4)
+            self.lgb_model.fit(X_train, y_train)
+            lgb_pred = self.lgb_model.predict_proba(X_train)[:, 1]
+            metrics["lgb_auc_train"] = round(roc_auc_score(y_train, lgb_pred), 4)
             logger.info(f"LightGBM train AUC: {metrics['lgb_auc_train']}")
+            if has_val:
+                lgb_val_pred = self.lgb_model.predict_proba(X_val)[:, 1]
+                metrics["lgb_auc_val"] = round(roc_auc_score(y_val, lgb_val_pred), 4)
+                logger.info(f"LightGBM val AUC: {metrics['lgb_auc_val']}")
 
         # ── Ensemble AUC ──────────────────────────────────────────────────────
-        ensemble_pred = self._ensemble_proba(X)
-        metrics["ensemble_auc_train"] = round(roc_auc_score(y, ensemble_pred), 4)
+        ensemble_pred = self._ensemble_proba(X_train)
+        metrics["ensemble_auc_train"] = round(roc_auc_score(y_train, ensemble_pred), 4)
         logger.info(f"Ensemble train AUC: {metrics['ensemble_auc_train']}")
+        if has_val:
+            ensemble_val_pred = self._ensemble_proba(X_val)
+            metrics["ensemble_auc_val"] = round(roc_auc_score(y_val, ensemble_val_pred), 4)
+            logger.info(f"Ensemble val AUC: {metrics['ensemble_auc_val']}")
+
+        # ── Feature importance ────────────────────────────────────────────────
+        feature_importance = self._get_feature_importance()
+        if feature_importance:
+            metrics["top_features"] = [f[0] for f in feature_importance[:10]]
+            logger.info("Top 10 features:")
+            for name, score in feature_importance[:10]:
+                logger.info(f"  {name}: {score:.4f}")
 
         self.is_trained = True
         self.training_source = training_source
@@ -451,7 +502,9 @@ class EnsembleTrainer:
                     "verbose": -1,
                 }
                 model = lgb.LGBMClassifier(**params)
-            scores = cross_val_score(model, X, y, cv=3, scoring="roc_auc")
+            # Use TimeSeriesSplit for temporal consistency (3 splits)
+            tscv = TimeSeriesSplit(n_splits=3)
+            scores = cross_val_score(model, X, y, cv=tscv, scoring="roc_auc")
             return scores.mean()
 
         for model_type in ("xgb", "lgb"):
@@ -462,6 +515,23 @@ class EnsembleTrainer:
                 logger.info("Optuna %s best AUC=%.4f params=%s", model_type, study.best_value, best)
             except Exception as e:
                 logger.warning("Optuna %s failed: %s", model_type, e)
+
+    def _get_feature_importance(self) -> List[Tuple[str, float]]:
+        """
+        Aggregate feature importance across XGBoost and LightGBM models.
+        Returns sorted list of (feature_name, importance_score).
+        """
+        imp_map: Dict[str, float] = {}
+        if XGB_AVAILABLE and self.xgb_model is not None:
+            xgb_imp = self.xgb_model.feature_importances_
+            for name, score in zip(self.feature_cols, xgb_imp):
+                imp_map[name] = imp_map.get(name, 0) + score
+        if LGB_AVAILABLE and self.lgb_model is not None:
+            lgb_imp = self.lgb_model.feature_importances_
+            for name, score in zip(self.feature_cols, lgb_imp):
+                imp_map[name] = imp_map.get(name, 0) + score
+        sorted_imp = sorted(imp_map.items(), key=lambda x: x[1], reverse=True)
+        return sorted_imp
 
     def compute_dynamic_weights(self, backtest_records, segment_key: str = ""):
         """Return (xgb_weight, lgb_weight) based on recent performance."""

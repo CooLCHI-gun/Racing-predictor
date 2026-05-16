@@ -152,6 +152,183 @@ class TelegramNotifier:
         filled = max(1, min(5, int(round(score * 5))))
         return "★" * filled + "☆" * (5 - filled)
 
+    async def send_test(self, mode: str = "preview") -> str:
+        """
+        Generate a test message without sending to Telegram.
+        Returns the formatted text for local preview.
+
+        Args:
+            mode: "preview" | "summary" | "result" | "alert"
+        """
+        from model.backtest import Backtester
+        from model.self_optimizer import StrategySelfOptimizer
+        from model.trainer import EnsembleTrainer
+        import io
+        import logging
+
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setLevel(logging.INFO)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(handler)
+
+        if mode == "preview":
+            text = self._build_test_preview()
+        elif mode == "summary":
+            text = self._build_test_summary()
+        elif mode == "result":
+            text = self._build_test_result()
+        else:
+            text = self._build_test_alert()
+
+        root_logger.removeHandler(handler)
+        return text
+
+    def _build_test_preview(self) -> str:
+        """Build a demo race preview message (no Telegram send)."""
+        now = datetime.now().strftime("%H:%M")
+        return (
+            f"🏇✨ <b>賽前雷達｜第5場</b> — 沙田 {now}\n"
+            f"\n"
+            f"📌 1200m | Class 3 | 草地 | GOOD\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>焦點三甲</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"1️⃣ 馬號3 [GOLDEN ACE] — 信心 78% ⭐值博\n"
+            f"2️⃣ 馬號7 [LUCKY STAR] — 信心 65%\n"
+            f"3️⃣ 馬號1 [SUPER FAST] — 信心 58%\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎰 <b>三T（進取）</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 主推: <b>3/7/1</b>\n"
+            f"🔹 備選: <b>3/7/5</b>\n"
+            f"⭐ ★★★★☆\n"
+            f"🏷️ 🟢 低風險 | 💵 <b>2.0u</b>\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🥈 <b>孖T（穩陣）</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 主線: <b>3/7</b>\n"
+            f"🔹 拖膽: <b>3/1</b>\n"
+            f"⭐ ★★★★☆\n"
+            f"🏷️ 🟢 低風險 | 💵 <b>2.0u</b>\n"
+            f"\n"
+            f"📊 <b>EV 亮點</b>: 馬號3 模型52% vs 賠率隱含28%\n"
+            f"\n"
+            f"🔢 共 12 匹 | 信心 72%\n"
+            f"📈 <b>優化門檻</b>: min_conf=50% max_odds=18\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"<i>🧪 僅供研究參考，不構成投注建議</i>"
+        )
+
+    def _build_test_summary(self) -> str:
+        """Build a demo daily summary message."""
+        return (
+            f"📊🌙 <b>每日戰報</b> — {datetime.now().strftime('%Y-%m-%d')}\n"
+            f"\n"
+            f"🏇 今日賽事完成 ✅\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📈 <b>核心指標（近30日）</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 首選命中: 38.5%\n"
+            f"🏆 頭三到位: 62.3%\n"
+            f"📊 總預測場次: 100 場\n"
+            f"\n"
+            f"📈 <b>ROI 分析</b>\n"
+            f"• 30日 ROI: <b>+12.4%</b>\n"
+            f"• 7日 ROI: +5.2%\n"
+            f"• 勝出 ROI: +15.8%\n"
+            f"• 位置 ROI: +8.3%\n"
+            f"💰 30日淨利潤: <b>+$124.00</b>\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"⚙️ <b>策略設定</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• 信心門檻: 50%\n"
+            f"• 最大賠率: 18.0\n"
+            f"• 優化分數: 0.4614\n"
+            f"\n"
+            f"📈 優化歷史 (最近3次):\n"
+            f"  05/16 conf=0.50 odds=18 score=0.461\n"
+            f"  05/15 conf=0.55 odds=18 score=0.423\n"
+            f"  05/14 conf=0.55 odds=25 score=0.398\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📉 <b>校準分析</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• 中低 (50%): 樣本28 實際勝率0% ⚠️ 過度高估\n"
+            f"• 中 (58%):  樣本31 實際勝率0% ⚠️\n"
+            f"• 高 (70%):  樣本41 實際勝率100% ✅\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🏆 <b>Top 5 重要特徵</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"1. elo_vs_field\n"
+            f"2. win_rate_x_odds\n"
+            f"3. rating_trend\n"
+            f"4. margin_x_form\n"
+            f"5. elo_rating\n"
+            f"\n"
+            f"<i>🧪 僅供研究參考，不構成投注建議</i>"
+        )
+
+    def _build_test_result(self) -> str:
+        """Build a demo race result message."""
+        return (
+            f"🏁 <b>賽果速報｜第3場</b>\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>預測 vs 實際</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🔮 預測TOP3: #5 / #2 / #11\n"
+            f"🏁 實際TOP3: #5 / #2 / #11\n"
+            f"\n"
+            f"✅ <b>三甲全中！</b> 🎉\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 <b>模擬回報</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• 勝出注 (首選 #5): <b>+$48.00</b> ✅\n"
+            f"• 位置注 (#5): <b>+$11.50</b> ✅\n"
+            f"• 三T注 (5/2/11): <b>+$340.00</b> 🎰\n"
+            f"\n"
+            f"<i>🧪 模擬計算，僅供研究參考</i>"
+        )
+
+    def _build_test_alert(self) -> str:
+        """Build a demo system alert message."""
+        return (
+            f"🚨 <b>系統警報</b>\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"⚠️ <b>數據源異常</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• 時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"• 源: HKJC GraphQL API\n"
+            f"• 錯誤: 400 Bad Request\n"
+            f"• 影響: 已自動降級至 HTML 模式\n"
+            f"• 後續: 15分鐘後自動重試\n"
+            f"\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"📋 <b>系統狀態</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• 模型: ✅ 已訓練\n"
+            f"• Scraper: ⚠️ 降級中\n"
+            f"• Telegram: ✅ 正常\n"
+            f"• 最後同步: {datetime.now().strftime('%H:%M:%S')}\n"
+            f"\n"
+            f"<i>系統自動通知，無需操作</i>"
+        )
+
+    def send_test_sync(self, mode: str = "preview") -> None:
+        """Print test message to stdout (for local verification)."""
+        text = self._run_async_sync(self.send_test(mode))
+        print(text)
+
     async def send_race_preview(self, race, prediction) -> bool:
         """
         Send a race preview notification 30 minutes before the race.

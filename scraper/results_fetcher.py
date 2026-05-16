@@ -212,12 +212,14 @@ def _fetch_day_results_graphql(race_date: str, venue_code: str) -> List[RaceResu
     """
     Fetch race results via GraphQL endpoint first.
     Falls back to HTML parser when blocked by whitelist or schema mismatch.
+    GraphQL endpoint is currently non-functional (schema mismatch), so this
+    is tried once and quickly falls through to HTML.
     """
     data = execute_graphql(
         query=GRAPHQL_RESULTS_QUERY,
         variables={"date": race_date, "venueCode": venue_code},
         operation_name="racing",
-        max_retries=2,
+        max_retries=1,
     )
     if not data:
         return []

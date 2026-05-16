@@ -13,6 +13,8 @@ htmlcov/
 .venv*/
 .venv311/
 venv/
+.testvenv/
+.testvenv*/
 
 # Local settings and secrets — catch ALL .env variants
 .env
@@ -34,6 +36,7 @@ data/predictions/tick_notified.json
 data/reports/maintenance_*.json
 data/predictions/history.json
 data/predictions/*.json
+data/models/*.json
 
 # Model binaries
 *.pkl

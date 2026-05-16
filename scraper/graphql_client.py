@@ -74,7 +74,7 @@ def execute_graphql(
             return body.get("data")
 
         except Exception as exc:
-            logger.warning("GraphQL attempt %s/%s failed: %s", attempt, max_retries, exc)
+            logger.debug("GraphQL attempt %s/%s failed: %s", attempt, max_retries, exc)
             if attempt < max_retries:
                 time.sleep(1.5 ** attempt)
 

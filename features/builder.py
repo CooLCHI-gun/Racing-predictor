@@ -51,6 +51,72 @@ def _days_since(date_str: str) -> int:
         return 999
 
 
+# ── NEW: Class change features ────────────────────────────────────────────────
+
+_CLASS_ORDER = {"Griffin": 0, "Class 5": 1, "Class 4": 2, "Class 3": 3,
+                "Class 2": 4, "Class 1": 5}
+
+
+def _class_change(past_races: list, current_class: str) -> float:
+    """
+    Calculate class change: positive = up in class (harder), negative = dropping.
+    Returns delta in class levels (e.g. -1 = drop 1 class).
+    """
+    if not past_races:
+        return 0.0  # debut
+    last_race = next((r for r in past_races if r.finish_position < 99), None)
+    if not last_race or not last_race.race_class:
+        return 0.0
+    prev = _CLASS_ORDER.get(last_race.race_class, 0)
+    curr = _CLASS_ORDER.get(current_class, 0)
+    return curr - prev
+
+
+def _class_performance(past_races: list, current_class: str) -> float:
+    """
+    Place rate when running at similar class level.
+    """
+    curr = _CLASS_ORDER.get(current_class, 0)
+    similar = [r for r in past_races if r.finish_position < 99
+               and _CLASS_ORDER.get(r.race_class, 0) == curr]
+    if not similar:
+        return 0.3
+    return sum(1 for r in similar if r.finish_position <= 3) / len(similar)
+
+
+# ── NEW: Weight change feature ────────────────────────────────────────────────
+
+def _weight_change(past_races: list, current_weight: int) -> float:
+    """
+    Weight change from last run: positive = carrying more today.
+    """
+    if not past_races:
+        return 0.0
+    last_race = next((r for r in past_races if r.finish_position < 99), None)
+    if not last_race:
+        return 0.0
+    return current_weight - last_race.weight
+
+
+# ── NEW: Winning margin feature ───────────────────────────────────────────────
+
+def _avg_winning_margin(past_races: list) -> float:
+    """
+    Average lengths behind winner in recent races (lower = more competitive).
+    """
+    margins = []
+    n = 0
+    for r in past_races:
+        if n >= 6:
+            break
+        if r.finish_position < 99 and r.winning_margin is not None:
+            margins.append(r.winning_margin)
+            n += 1
+    if not margins:
+        return 10.0  # default: poor
+    return sum(margins) / len(margins)
+
+
 def _form_score(past_races: list, n: int = 6) -> float:
     """
     Calculate weighted recent form score.
@@ -206,6 +272,12 @@ def build_features(
         rating_trend = _rating_trend(past)
         weight_vs_avg = _weight_vs_avg(horse.weight, all_weights)
 
+        # ── NEW features ──────────────────────────────────────────────────────
+        class_chg = _class_change(past, race.race_class)
+        class_perf = _class_performance(past, race.race_class)
+        wt_change = _weight_change(past, horse.weight)
+        avg_margin = _avg_winning_margin(past)
+
         days_since_last = _days_since(past[0].race_date) if past else 999
 
         # Win rate & place rate from profile
@@ -253,6 +325,14 @@ def build_features(
             "recent_form_score": round(form, 4),
             "win_rate": round(win_rate, 4),
             "place_rate": round(place_rate, 4),
+
+            # ── NEW: Class features ───────────────────────────────────────────
+            "class_change": round(class_chg, 2),
+            "class_performance": round(class_perf, 4),
+
+            # ── NEW: Weight/condition features ────────────────────────────────
+            "weight_change": round(wt_change, 1),
+            "avg_winning_margin": round(avg_margin, 2),
 
             # ── Distance/going features ────────────────────────────────────
             "distance_aptitude": round(dist_apt, 4),
@@ -308,6 +388,9 @@ def build_features(
     df["form_x_odds"] = df["recent_form_score"] * (1.0 / df["win_odds"].clip(lower=1.01))
     df["distance_x_draw"] = df["race_distance"] * df["draw_normalised"]
     df["win_rate_x_odds"] = df["win_rate"] * (1.0 / df["win_odds"].clip(lower=1.01))
+    df["class_x_dist"] = df["class_change"] * df["distance_aptitude"]
+    df["weight_x_change"] = df["weight_carried"] * df["weight_change"].clip(-20, 20)
+    df["margin_x_form"] = df["avg_winning_margin"].clip(0, 30) * (1.0 - df["recent_form_score"])
     for col in INTERACTION_COLS:
         df[col] = df[col].fillna(0.0).astype(float)
 
@@ -323,6 +406,9 @@ INTERACTION_COLS = [
     "form_x_odds",
     "distance_x_draw",
     "win_rate_x_odds",
+    "class_x_dist",
+    "weight_x_change",
+    "margin_x_form",
 ]
 
 MODEL_FEATURE_COLS = [
@@ -337,5 +423,9 @@ MODEL_FEATURE_COLS = [
     "handicap_rating", "rating_trend", "rating_vs_avg",
     "weight_carried", "weight_vs_avg", "days_since_last_run",
     "implied_win_probability", "implied_place_probability",
-    "race_date", "race_start_time", "race_datetime", "race_distance", "n_runners", "venue_is_st",
+    "class_change", "class_performance",
+    "weight_change", "avg_winning_margin",
+    "race_distance", "n_runners", "venue_is_st",
+    # Interaction features
+    "class_x_dist", "weight_x_change", "margin_x_form",
 ]
