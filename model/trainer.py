@@ -294,25 +294,30 @@ class EnsembleTrainer:
 
             predicted_top3 = list(getattr(rec, "predicted_top3", []) or [])[:3]
             predicted_top3_odds = list(getattr(rec, "predicted_top3_odds", []) or [])[:3]
-            if not predicted_top3:
+
+            actual_result = list(getattr(rec, "actual_result", []) or [])
+            if not actual_result:
                 continue
 
-            actual_top3 = set((getattr(rec, "actual_result", []) or [])[:3])
-            n_runners = max(6, min(18, len(getattr(rec, "actual_result", []) or []) or 12))
+            actual_top3 = set(actual_result[:3])
+            n_runners = max(6, min(18, len(actual_result) or 12))
             venue = str(getattr(rec, "venue", "") or "")
             venue_is_st = 1 if "sha" in venue.lower() else 0
             race_distance = int(getattr(rec, "distance", 1400) or 1400)
+            rec_conf = float(getattr(rec, "model_confidence", 0.5) or 0.5)
+
+            # Track which predicted horses we've already added
+            predicted_added = set()
 
             for idx, horse_no in enumerate(predicted_top3):
                 if not horse_no:
                     continue
+                predicted_added.add(int(horse_no))
                 win_odds = float(predicted_top3_odds[idx]) if idx < len(predicted_top3_odds) and predicted_top3_odds[idx] else 12.0
                 win_odds = max(1.01, win_odds)
                 place_odds = max(1.01, win_odds / 3.6)
 
-                # A lightweight proxy for horse-level strength using only settled real fields.
                 rank_hint = idx + 1
-                rec_conf = float(getattr(rec, "model_confidence", 0.5) or 0.5)
                 confidence_hint = max(0.05, min(0.99, rec_conf - (rank_hint - 1) * 0.08))
 
                 row = {
@@ -352,6 +357,54 @@ class EnsembleTrainer:
                     "venue_is_st": venue_is_st,
                     "is_top3": 1 if int(horse_no) in actual_top3 else 0,
                     "finish_position": 0,
+                }
+                rows.append(row)
+
+            # Add ALL other horses from actual_result as negative examples
+            for finish_pos, horse_no in enumerate(actual_result, start=1):
+                horse_no = int(horse_no)
+                if horse_no <= 0 or horse_no in predicted_added:
+                    continue
+                in_top3 = horse_no in actual_top3
+                # Non-predicted horses get lower proxy features
+                base_odds = max(3.0, predicted_top3_odds[-1] * 2.0) if predicted_top3_odds else 20.0
+                row = {
+                    "elo_rating": 1480.0 - (finish_pos * 5.0),
+                    "elo_vs_field": float(-finish_pos) * 3.0,
+                    "elo_delta_last3": 0.0,
+                    "jockey_win_rate_30d": 0.08,
+                    "jockey_place_rate_30d": 0.20,
+                    "jockey_win_rate_overall": 0.08,
+                    "jockey_venue_win_rate": 0.08,
+                    "jockey_distance_win_rate": 0.08,
+                    "trainer_win_rate_30d": 0.08,
+                    "trainer_place_rate_30d": 0.18,
+                    "trainer_win_rate_overall": 0.08,
+                    "combo_win_rate": 0.06,
+                    "combo_place_rate": 0.15,
+                    "draw_advantage_score": 0.0,
+                    "draw_position": min(n_runners, finish_pos),
+                    "draw_normalised": float(min(n_runners, finish_pos)) / float(max(n_runners, 1)),
+                    "recent_form_score": max(0.01, 0.50 - finish_pos * 0.05),
+                    "win_rate": max(0.01, 0.20 - finish_pos * 0.02),
+                    "place_rate": max(0.01, 0.40 - finish_pos * 0.04),
+                    "distance_aptitude": 0.40,
+                    "going_aptitude": 0.40,
+                    "handicap_rating": max(30.0, 65.0 - finish_pos * 2.0),
+                    "rating_trend": 0.0,
+                    "rating_vs_avg": float(-finish_pos) * 0.5,
+                    "weight_carried": 123,
+                    "weight_vs_avg": 0.0,
+                    "days_since_last_run": 35,
+                    "win_odds": base_odds + finish_pos * 2.0,
+                    "place_odds": max(1.05, (base_odds + finish_pos * 2.0) / 4.0),
+                    "implied_win_probability": 1.0 / max(1.01, base_odds + finish_pos * 2.0),
+                    "implied_place_probability": 1.0 / max(1.01, (base_odds + finish_pos * 2.0) / 4.0),
+                    "race_distance": race_distance,
+                    "n_runners": n_runners,
+                    "venue_is_st": venue_is_st,
+                    "is_top3": 1 if in_top3 else 0,
+                    "finish_position": finish_pos,
                 }
                 rows.append(row)
 
@@ -490,6 +543,39 @@ class EnsembleTrainer:
         self.is_trained = True
         self.training_source = training_source
         self.training_generated_at = datetime.now().isoformat()
+
+        # ── Probability calibration (Platt scaling) ────────────────────────────
+        # Raw model probabilities tend to be poorly calibrated. Fit a calibrator
+        # on the validation set (or training set if no validation) to map raw
+        # ensemble scores to well-calibrated probabilities.
+        if has_val and len(np.unique(y_val)) >= 2:
+            calib_X = X_val
+            calib_y = y_val
+            logger.info("Calibrating on validation set (n=%s)", len(calib_X))
+        else:
+            calib_X = X_train
+            calib_y = y_train
+            logger.info("Calibrating on training set (n=%s)", len(calib_X))
+
+        try:
+            from sklearn.calibration import CalibratedClassifierCV
+            # Get raw ensemble scores for calibration
+            calib_scores = self._ensemble_proba(calib_X).reshape(-1, 1)
+            # Fit a simple logistic regression as calibrator
+            from sklearn.linear_model import LogisticRegression
+            self.calibrator = LogisticRegression(C=1.0, solver='lbfgs', max_iter=1000, random_state=42)
+            self.calibrator.fit(calib_scores, calib_y)
+            # Evaluate calibration improvement
+            raw_score = roc_auc_score(calib_y, self._ensemble_proba(calib_X))
+            calib_score = roc_auc_score(calib_y, self.calibrator.predict_proba(calib_scores)[:, 1])
+            logger.info("Calibration: raw_auc=%.4f calibrated_auc=%.4f", raw_score, calib_score)
+            metrics["calibration_auc_val"] = round(calib_score, 4)
+            self.calibrator_fitted = True
+        except Exception as e:
+            logger.warning("Calibration failed: %s; using raw probabilities", e)
+            self.calibrator = None
+            self.calibrator_fitted = False
+
         return metrics
 
     def tune_hyperparams(self, df, n_trials: int = 20):
@@ -576,6 +662,7 @@ class EnsembleTrainer:
         """
         Compute ensemble probability using dynamic or given weights.
         When no weights provided, uses stored ensemble weights (updated after training).
+        If a calibrator is fitted, applies Platt scaling to the raw ensemble score.
         """
         if weights is None:
             weights = self.ensemble_weights
@@ -590,7 +677,12 @@ class EnsembleTrainer:
             w_sum += lgb_w
         if not preds or w_sum == 0:
             return np.full(len(X), 1.0 / 12)
-        return sum(preds) / w_sum
+        raw_proba = sum(preds) / w_sum
+
+        # Apply calibration if fitted
+        if getattr(self, 'calibrator_fitted', False) and self.calibrator is not None:
+            return self.calibrator.predict_proba(raw_proba.reshape(-1, 1))[:, 1]
+        return raw_proba
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """

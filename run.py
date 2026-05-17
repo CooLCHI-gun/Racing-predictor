@@ -1817,7 +1817,9 @@ def run_migrate_provenance() -> None:
 
 
 def run_send_all_previews_now() -> None:
-    """Force-send pre-race preview Telegram messages for all races in current/next meeting."""
+    """Force-send pre-race preview Telegram messages for all races in current/next meeting.
+    
+    Updates tick_notified.json so subsequent tick mode runs won't resend."""
     from scraper.racecard import fetch_racecard
     from scraper.horse_profile import fetch_horse_profile
     from scraper.odds import fetch_odds
@@ -1859,7 +1861,17 @@ def run_send_all_previews_now() -> None:
     blocked = 0
     profile_cache = {}
 
+    # Load tick dedup state so we can update it
+    state_path = config.TICK_SENT_STATE_FILE
+    sent_ids = _load_tick_sent_state(state_path, today)
+
     for race in races:
+        race_id = f"{race.race_date}_{race.venue_code}_{race.race_number}"
+        if race_id in sent_ids:
+            logger.info(f"Race {race.race_number} already sent per tick state; skipping")
+            blocked += 1
+            continue
+
         horse_profiles = {}
         for h in race.horses:
             if h.horse_code not in profile_cache:
@@ -1882,9 +1894,13 @@ def run_send_all_previews_now() -> None:
         )
         ok = notifier._run_async_sync(notifier.send_race_preview(race, pred))
         if ok:
+            sent_ids.add(race_id)
             sent += 1
         else:
             blocked += 1
+
+    # Persist updated dedup state so tick mode won't resend
+    _save_tick_sent_state(state_path, today, sent_ids)
 
     print("\n已執行全場賽前推送")
     print(f"- meeting_date: {races[0].race_date}")

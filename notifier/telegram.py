@@ -40,6 +40,11 @@ class TelegramNotifier:
             self.message_style = "pro"
         self._bot: Any = None
         self._templates: Dict[str, str] = {}
+        if not self.token or not self.chat_id:
+            logger.warning(
+                "Telegram token or chat_id not configured. "
+                "Set TELEGRAM_TOKEN (or TELEGRAM_BOT_TOKEN) and TELEGRAM_CHAT_ID environment variables."
+            )
 
     def _load_template(self, name: str) -> str:
         """Load template from disk with caching."""
@@ -55,20 +60,19 @@ class TelegramNotifier:
             self._templates[name] = "[{name}] template missing"
         return self._templates[name]
 
-        if not self.token or not self.chat_id:
-            logger.warning(
-                "Telegram token or chat_id not configured. "
-                "Set TELEGRAM_TOKEN (or TELEGRAM_BOT_TOKEN) and TELEGRAM_CHAT_ID environment variables."
-            )
-
     def _get_bot(self) -> Any:
-        """Create or reuse cached Telegram bot instance."""
-        if self._bot is not None:
-            return self._bot
+        """Create a fresh Telegram bot instance.
+
+        IMPORTANT: Do NOT cache the Bot instance. python-telegram-bot v20+
+        uses httpx internally which binds to the event loop active during
+        the first HTTP request. When used across multiple asyncio.run()
+        calls (each creating a new event loop), a cached Bot causes
+        "Event loop is closed" errors because httpx still references the
+        original (closed) loop. Creating a fresh Bot per send avoids this.
+        """
         try:
             from telegram import Bot
-            self._bot = Bot(token=self.token)
-            return self._bot
+            return Bot(token=self.token)
         except ImportError:
             logger.error("python-telegram-bot not installed: pip install python-telegram-bot==20.6")
         except Exception as e:
@@ -119,18 +123,39 @@ class TelegramNotifier:
         return any(re.search(p, text) for p in patterns)
 
     def _run_async_sync(self, coro) -> bool:
-        """Run async coroutine from sync context safely."""
+        """Run async coroutine from sync context safely.
+
+        When an event loop is already running (e.g. after Playwright),
+        schedule the coroutine on that loop via run_coroutine_threadsafe
+        instead of trying to create a new loop in a separate thread.
+        """
         try:
-            asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(coro)
-        except Exception as e:
-            logger.error(f"Error running async coroutine: {e}")
-            return False
+            # No running loop — safe to run directly
+            try:
+                return asyncio.run(coro)
+            except Exception as e:
+                logger.error(f"Error running async coroutine: {e}")
+                return False
+
+        # There IS a running loop — schedule on it from a helper thread
+        import concurrent.futures
+
+        def _run_on_loop():
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            return future.result()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                future = pool.submit(_run_on_loop)
+                return future.result(timeout=30)
+            except concurrent.futures.TimeoutError:
+                logger.error("Timeout waiting for async coroutine")
+                return False
+            except Exception as e:
+                logger.error(f"Error running async coroutine on existing loop: {e}")
+                return False
 
     def send_sync(self, text: str) -> bool:
         """Synchronous wrapper for _send."""
